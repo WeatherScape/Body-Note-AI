@@ -12,7 +12,7 @@ const tabs: { key: TabKey; label: string; icon: React.ComponentType<{ className?
   { key: "meals", label: "食事", icon: Soup },
   { key: "workouts", label: "筋トレ", icon: Dumbbell },
   { key: "progress", label: "進捗", icon: BarChart3 },
-  { key: "coach", label: "AI", icon: Bot }
+  { key: "coach", label: "コーチ", icon: Bot }
 ];
 
 type AppShellProps = {

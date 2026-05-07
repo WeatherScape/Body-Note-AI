@@ -266,9 +266,12 @@ function Onboarding({ onComplete }: { onComplete: (profile: UserProfile) => void
         <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-3xl bg-ink text-white shadow-card">
           <Sparkles className="h-6 w-6" />
         </div>
-        <p className="text-sm font-bold text-apple">毎日1分のAIボディメイクコーチ</p>
+        <p className="text-sm font-bold text-apple">毎日1分のボディメイクコーチ</p>
         <h1 className="mt-2 text-4xl font-black tracking-normal text-ink">BodyNote AI</h1>
         <p className="mt-3 leading-7 text-muted">細かすぎる管理は不要です。目標だけ決めて、今日の判断をアプリに任せましょう。</p>
+        <p className="mt-3 rounded-3xl bg-white p-4 text-sm font-semibold leading-6 text-muted shadow-sm">
+          記録データはこの端末のブラウザに保存されます。外部AI APIやサーバー送信は使っていません。
+        </p>
       </div>
 
       <Card className="space-y-5 p-5">
@@ -408,11 +411,13 @@ function DashboardScreen({
             </Button>
             <Button variant="secondary" onClick={onCoach} className="w-full">
               <Sparkles className="h-4 w-4" />
-              AIを見る
+              コーチを見る
             </Button>
           </div>
         </CardContent>
       </Card>
+
+      <PrivacyNotice />
     </div>
   );
 }
@@ -902,6 +907,7 @@ function CoachScreen({ advice, summary, profile }: { advice: ReturnType<typeof g
           </div>
         </CardContent>
       </Card>
+      <PrivacyNotice />
     </div>
   );
 }
@@ -931,6 +937,20 @@ function CoachText({ title, text }: { title: string; text: string }) {
       <p className="text-sm font-black text-apple">{title}</p>
       <p className="mt-1 text-sm font-semibold leading-6 text-ink">{text}</p>
     </div>
+  );
+}
+
+function PrivacyNotice() {
+  return (
+    <Card className="border-blue-100 bg-blue-50/80">
+      <CardContent className="space-y-2 p-4">
+        <p className="text-sm font-black text-ink">安心メモ</p>
+        <p className="text-xs font-semibold leading-5 text-muted">
+          食事・体重・筋トレの記録はこの端末のブラウザ内に保存されます。外部AI APIやサーバー送信は使っていません。
+          医療・栄養指導ではなく、日々の記録と意思決定を助けるための目安です。
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 
