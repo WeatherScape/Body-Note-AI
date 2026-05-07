@@ -39,6 +39,7 @@ export const initialMealTemplates: MealTemplate[] = [
   {
     id: "morning-set",
     name: "朝セット",
+    timing: "breakfast",
     items: [
       foodPresets.find((item) => item.id === "protein-1")!,
       foodPresets.find((item) => item.id === "banana-1")!,
@@ -49,6 +50,7 @@ export const initialMealTemplates: MealTemplate[] = [
   {
     id: "cut-dinner-set",
     name: "減量夜セット",
+    timing: "dinner",
     items: [
       foodPresets.find((item) => item.id === "chicken-breast-100")!,
       foodPresets.find((item) => item.id === "rice-150")!
@@ -58,6 +60,7 @@ export const initialMealTemplates: MealTemplate[] = [
   {
     id: "post-workout-set",
     name: "筋トレ後セット",
+    timing: "postWorkout",
     items: [
       foodPresets.find((item) => item.id === "protein-1")!,
       foodPresets.find((item) => item.id === "rice-150")!

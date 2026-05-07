@@ -71,6 +71,7 @@ export type FoodPreset = {
 export type MealTemplate = {
   id: string;
   name: string;
+  timing?: MealTiming;
   items: FoodPreset[];
   createdAt: string;
 };

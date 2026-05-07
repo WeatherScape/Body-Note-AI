@@ -11,6 +11,7 @@ import {
   Dumbbell,
   Flame,
   HeartPulse,
+  Pencil,
   Plus,
   Scale,
   Sparkles,
@@ -140,11 +141,12 @@ export default function Home() {
   };
 
   const addTemplate = (template: MealTemplate, timing: MealTiming) => {
+    const targetTiming = template.timing ?? timing;
     const now = new Date().toISOString();
     const entries = template.items.map<MealEntry>((item) => ({
       id: createId("meal"),
       date,
-      timing,
+      timing: targetTiming,
       name: item.name,
       calories: item.calories,
       protein: item.protein,
@@ -214,8 +216,10 @@ export default function Home() {
     saveBodyLogs(next);
   };
 
-  const saveTodayTemplate = (name: string) => {
-    const items = todayMeals.map<FoodPreset>((meal) => ({
+  const saveTodayTemplate = (name: string, timing: MealTiming, templateId?: string) => {
+    const sourceMeals = todayMeals.filter((meal) => meal.timing === timing);
+    const fallbackTemplate = templateId ? mealTemplates.find((template) => template.id === templateId) : undefined;
+    const items = (sourceMeals.length ? sourceMeals : templateId ? [] : todayMeals).map<FoodPreset>((meal) => ({
       id: meal.id,
       name: meal.name,
       calories: meal.calories,
@@ -223,8 +227,22 @@ export default function Home() {
       fat: meal.fat,
       carbs: meal.carbs
     }));
-    if (!name.trim() || items.length === 0) return;
-    const next = [...mealTemplates, { id: createId("template"), name: name.trim(), items, createdAt: new Date().toISOString() }];
+    const nextItems = items.length ? items : fallbackTemplate?.items ?? [];
+    if (!name.trim() || nextItems.length === 0) return;
+    const nextTemplate: MealTemplate = {
+      id: templateId ?? createId("template"),
+      name: name.trim(),
+      timing,
+      items: nextItems,
+      createdAt: fallbackTemplate?.createdAt ?? new Date().toISOString()
+    };
+    const next = [nextTemplate, ...mealTemplates.filter((template) => template.id !== nextTemplate.id)];
+    setMealTemplates(next);
+    saveMealTemplates(next);
+  };
+
+  const deleteMealTemplate = (id: string) => {
+    const next = mealTemplates.filter((template) => template.id !== id);
     setMealTemplates(next);
     saveMealTemplates(next);
   };
@@ -291,6 +309,7 @@ export default function Home() {
           onDeleteMeal={deleteMeal}
           onAddTemplate={addTemplate}
           onSaveTemplate={saveTodayTemplate}
+          onDeleteTemplate={deleteMealTemplate}
         />
       )}
   {activeTab === "workouts" && (
@@ -720,7 +739,12 @@ function QuickRecordScreen({
               onClick={() => onAddTemplate(template, timing)}
               className="min-w-44 rounded-3xl border border-line bg-white p-4 text-left shadow-sm transition active:scale-[0.98]"
             >
-              <p className="font-black text-ink">{template.name}</p>
+              <div className="flex items-center justify-between gap-3">
+                <p className="font-black text-ink">{template.name}</p>
+                <span className="rounded-full bg-gray-100 px-2 py-1 text-[10px] font-black text-muted">
+                  {mealTimingLabels[template.timing ?? timing]}
+                </span>
+              </div>
               <p className="mt-2 text-xs leading-5 text-muted">{template.items.map((item) => item.name.split(" ")[0]).join(" + ")}</p>
             </button>
           ))}
@@ -825,7 +849,8 @@ function MealsScreen({
   templates,
   onDeleteMeal,
   onAddTemplate,
-  onSaveTemplate
+  onSaveTemplate,
+  onDeleteTemplate
 }: {
   profile: UserProfile;
   summary: NonNullable<ReturnType<typeof buildDailySummary>>;
@@ -833,10 +858,14 @@ function MealsScreen({
   templates: MealTemplate[];
   onDeleteMeal: (id: string) => void;
   onAddTemplate: (template: MealTemplate, timing: MealTiming) => void;
-  onSaveTemplate: (name: string) => void;
+  onSaveTemplate: (name: string, timing: MealTiming, templateId?: string) => void;
+  onDeleteTemplate: (id: string) => void;
 }) {
   const [templateName, setTemplateName] = useState("");
   const [timing, setTiming] = useState<MealTiming>("dinner");
+  const [editingTemplateId, setEditingTemplateId] = useState<string | undefined>();
+  const mealsForTiming = meals.filter((meal) => meal.timing === timing);
+  const editingTemplate = editingTemplateId ? templates.find((template) => template.id === editingTemplateId) : undefined;
 
   return (
     <div className="space-y-4">
@@ -876,24 +905,74 @@ function MealsScreen({
           <TimingPicker value={timing} onChange={setTiming} />
           <div className="grid gap-2">
             {templates.map((template) => (
-              <button key={template.id} onClick={() => onAddTemplate(template, timing)} className="rounded-2xl bg-gray-50 p-4 text-left">
-                <p className="font-black text-ink">{template.name}</p>
-                <p className="mt-1 text-xs leading-5 text-muted">{template.items.map((item) => item.name).join(" / ")}</p>
-              </button>
+              <div key={template.id} className="rounded-2xl bg-gray-50 p-4">
+                <button onClick={() => onAddTemplate(template, timing)} className="w-full text-left">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="font-black text-ink">{template.name}</p>
+                    <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-muted shadow-sm">
+                      {mealTimingLabels[template.timing ?? timing]}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-muted">{template.items.map((item) => item.name).join(" / ")}</p>
+                </button>
+                <div className="mt-3 flex gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      setEditingTemplateId(template.id);
+                      setTemplateName(template.name);
+                      setTiming(template.timing ?? timing);
+                    }}
+                  >
+                    <Pencil className="h-4 w-4" />
+                    編集
+                  </Button>
+                  <Button variant="danger" size="sm" onClick={() => onDeleteTemplate(template.id)}>
+                    <Trash2 className="h-4 w-4" />
+                    削除
+                  </Button>
+                </div>
+              </div>
             ))}
           </div>
+          <p className="rounded-2xl bg-blue-50 p-3 text-xs font-semibold leading-5 text-muted">
+            テンプレートは「毎日ほぼ同じ朝食」「固定のトレ後セット」向けです。選んだタイミングの今日の食事から保存・更新します。
+          </p>
           <div className="flex gap-2">
-            <Input placeholder="今日の食事をテンプレ保存" value={templateName} onChange={(event) => setTemplateName(event.target.value)} />
+            <Input
+              placeholder={editingTemplateId ? "テンプレート名を編集" : "今日の食事をテンプレ保存"}
+              value={templateName}
+              onChange={(event) => setTemplateName(event.target.value)}
+            />
             <Button
               size="icon"
               onClick={() => {
-                onSaveTemplate(templateName);
+                onSaveTemplate(templateName, timing, editingTemplateId);
+                setTemplateName("");
+                setEditingTemplateId(undefined);
+              }}
+            >
+              {editingTemplateId ? <Pencil className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
+            </Button>
+          </div>
+          <p className="text-xs font-semibold leading-5 text-muted">
+            {editingTemplate
+              ? `編集中: ${editingTemplate.name}。${mealsForTiming.length ? `${mealTimingLabels[timing]}の今日の食事で中身も更新されます。` : "今日の該当タイミングに食事がない場合、中身はそのままで名前とタイミングだけ更新します。"}`
+              : `${mealTimingLabels[timing]}の今日の食事 ${mealsForTiming.length}件をテンプレート化します。`}
+          </p>
+          {editingTemplateId && (
+            <Button
+              variant="ghost"
+              className="w-full"
+              onClick={() => {
+                setEditingTemplateId(undefined);
                 setTemplateName("");
               }}
             >
-              <Plus className="h-5 w-5" />
+              編集をキャンセル
             </Button>
-          </div>
+          )}
         </CardContent>
       </Card>
     </div>
