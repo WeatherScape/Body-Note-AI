@@ -1,11 +1,18 @@
 export type GoalType = "cut" | "maintain" | "bulk";
 export type ManagementStyle = "easy" | "normal" | "serious";
 export type MealTiming = "breakfast" | "lunch" | "dinner" | "snack" | "postWorkout";
+export type Sex = "male" | "female";
+export type ActivityLevel = "sedentary" | "light" | "moderate" | "active";
 
 export type UserProfile = {
   goal: GoalType;
   currentWeight: number;
   targetWeight: number;
+  height: number;
+  age: number;
+  sex: Sex;
+  activityLevel: ActivityLevel;
+  estimatedMaintenanceCalories: number;
   targetCalories: number;
   targetProtein: number;
   weeklyWorkoutGoal: number;

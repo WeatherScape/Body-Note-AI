@@ -9,7 +9,8 @@ const keys = {
   workoutEntries: "bodynote:workoutEntries",
   bodyLogs: "bodynote:bodyLogs",
   mealTemplates: "bodynote:mealTemplates",
-  customFoodPresets: "bodynote:customFoodPresets"
+  customFoodPresets: "bodynote:customFoodPresets",
+  customWorkoutPresets: "bodynote:customWorkoutPresets"
 } as const;
 
 function readJson<T>(key: string, fallback: T): T {
@@ -34,6 +35,7 @@ export type AppData = {
   bodyLogs: BodyLog[];
   mealTemplates: MealTemplate[];
   customFoodPresets: FoodPreset[];
+  customWorkoutPresets: string[];
 };
 
 export function loadAppData(): AppData {
@@ -43,7 +45,8 @@ export function loadAppData(): AppData {
     workoutEntries: readJson<WorkoutEntry[]>(keys.workoutEntries, []),
     bodyLogs: readJson<BodyLog[]>(keys.bodyLogs, []),
     mealTemplates: readJson<MealTemplate[]>(keys.mealTemplates, initialMealTemplates),
-    customFoodPresets: readJson<FoodPreset[]>(keys.customFoodPresets, [])
+    customFoodPresets: readJson<FoodPreset[]>(keys.customFoodPresets, []),
+    customWorkoutPresets: readJson<string[]>(keys.customWorkoutPresets, [])
   };
 }
 
@@ -69,4 +72,8 @@ export function saveMealTemplates(entries: MealTemplate[]) {
 
 export function saveCustomFoodPresets(entries: FoodPreset[]) {
   writeJson(keys.customFoodPresets, entries);
+}
+
+export function saveCustomWorkoutPresets(entries: string[]) {
+  writeJson(keys.customWorkoutPresets, entries);
 }

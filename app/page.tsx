@@ -27,12 +27,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { generateCoachAdvice } from "@/lib/coach";
+import { activityLevelLabels, calculateNutritionTargets } from "@/lib/nutrition";
 import { foodPresets, initialMealTemplates, mealTimingLabels, workoutPresets } from "@/lib/presets";
 import { buildDailySummary } from "@/lib/summary";
 import {
   loadAppData,
   saveBodyLogs,
   saveCustomFoodPresets,
+  saveCustomWorkoutPresets,
   saveMealEntries,
   saveMealTemplates,
   saveProfile,
@@ -45,6 +47,11 @@ const defaultProfile: UserProfile = {
   goal: "cut",
   currentWeight: 68,
   targetWeight: 62,
+  height: 170,
+  age: 22,
+  sex: "male",
+  activityLevel: "moderate",
+  estimatedMaintenanceCalories: 2300,
   targetCalories: 1900,
   targetProtein: 120,
   weeklyWorkoutGoal: 3,
@@ -63,6 +70,7 @@ export default function Home() {
   const [bodyLogs, setBodyLogs] = useState<BodyLog[]>([]);
   const [mealTemplates, setMealTemplates] = useState<MealTemplate[]>(initialMealTemplates);
   const [customFoodPresets, setCustomFoodPresets] = useState<FoodPreset[]>([]);
+  const [customWorkoutPresets, setCustomWorkoutPresets] = useState<string[]>([]);
   const date = todayKey();
 
   useEffect(() => {
@@ -73,6 +81,7 @@ export default function Home() {
     setBodyLogs(data.bodyLogs);
     setMealTemplates(data.mealTemplates.length ? data.mealTemplates : initialMealTemplates);
     setCustomFoodPresets(data.customFoodPresets);
+    setCustomWorkoutPresets(data.customWorkoutPresets);
     setLoaded(true);
   }, []);
 
@@ -155,6 +164,20 @@ export default function Home() {
     saveWorkoutEntries(next);
   };
 
+  const saveCustomWorkoutPreset = (exercise: string) => {
+    const name = exercise.trim();
+    if (!name) return;
+    const next = [name, ...customWorkoutPresets.filter((item) => item !== name)].slice(0, 30);
+    setCustomWorkoutPresets(next);
+    saveCustomWorkoutPresets(next);
+  };
+
+  const deleteCustomWorkoutPreset = (exercise: string) => {
+    const next = customWorkoutPresets.filter((item) => item !== exercise);
+    setCustomWorkoutPresets(next);
+    saveCustomWorkoutPresets(next);
+  };
+
   const deleteWorkout = (id: string) => {
     const next = workoutEntries.filter((workout) => workout.id !== id);
     setWorkoutEntries(next);
@@ -216,10 +239,12 @@ export default function Home() {
           selectedDate={date}
           templates={mealTemplates}
           customFoodPresets={customFoodPresets}
+          customWorkoutPresets={customWorkoutPresets}
           onAddMeal={addMeal}
           onAddTemplate={addTemplate}
           onSaveCustomFood={saveCustomFoodPreset}
           onDeleteCustomFood={deleteCustomFoodPreset}
+          onSaveCustomWorkout={saveCustomWorkoutPreset}
           onAddWorkout={addWorkout}
           onAddBodyLog={addBodyLog}
           workouts={workoutEntries}
@@ -237,7 +262,15 @@ export default function Home() {
         />
       )}
   {activeTab === "workouts" && (
-        <WorkoutsScreen workouts={todayWorkouts} allWorkouts={workoutEntries} onAddWorkout={addWorkout} onDeleteWorkout={deleteWorkout} />
+        <WorkoutsScreen
+          workouts={todayWorkouts}
+          allWorkouts={workoutEntries}
+          customWorkoutPresets={customWorkoutPresets}
+          onAddWorkout={addWorkout}
+          onDeleteWorkout={deleteWorkout}
+          onSaveCustomWorkout={saveCustomWorkoutPreset}
+          onDeleteCustomWorkout={deleteCustomWorkoutPreset}
+        />
       )}
       {activeTab === "progress" && (
         <ProgressScreen
@@ -255,6 +288,30 @@ export default function Home() {
 
 function Onboarding({ onComplete }: { onComplete: (profile: UserProfile) => void }) {
   const [form, setForm] = useState(defaultProfile);
+  const [autoTargets, setAutoTargets] = useState(true);
+  const calculatedTargets = useMemo(
+    () =>
+      calculateNutritionTargets({
+        goal: form.goal,
+        style: form.style,
+        sex: form.sex,
+        weight: form.currentWeight,
+        height: form.height,
+        age: form.age,
+        activityLevel: form.activityLevel
+      }),
+    [form.goal, form.style, form.sex, form.currentWeight, form.height, form.age, form.activityLevel]
+  );
+
+  useEffect(() => {
+    if (!autoTargets) return;
+    setForm((current) => ({
+      ...current,
+      estimatedMaintenanceCalories: calculatedTargets.maintenanceCalories,
+      targetCalories: calculatedTargets.targetCalories,
+      targetProtein: calculatedTargets.targetProtein
+    }));
+  }, [autoTargets, calculatedTargets.maintenanceCalories, calculatedTargets.targetCalories, calculatedTargets.targetProtein]);
 
   const update = <K extends keyof UserProfile>(key: K, value: UserProfile[K]) => {
     setForm((current) => ({ ...current, [key]: value }));
@@ -304,11 +361,28 @@ function Onboarding({ onComplete }: { onComplete: (profile: UserProfile) => void
           </Labeled>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <Labeled label="目標カロリー">
-            <NumberInput value={form.targetCalories} unit="kcal" onChange={(value) => update("targetCalories", value)} />
+          <Labeled label="身長">
+            <NumberInput value={form.height} unit="cm" onChange={(value) => update("height", value)} />
           </Labeled>
-          <Labeled label="目標タンパク質">
-            <NumberInput value={form.targetProtein} unit="g" onChange={(value) => update("targetProtein", value)} />
+          <Labeled label="年齢">
+            <NumberInput value={form.age} unit="歳" onChange={(value) => update("age", value)} />
+          </Labeled>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Labeled label="性別">
+            <Select value={form.sex} onChange={(event) => update("sex", event.target.value as UserProfile["sex"])}>
+              <option value="male">男性</option>
+              <option value="female">女性</option>
+            </Select>
+          </Labeled>
+          <Labeled label="運動頻度">
+            <Select value={form.activityLevel} onChange={(event) => update("activityLevel", event.target.value as UserProfile["activityLevel"])}>
+              {Object.entries(activityLevelLabels).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </Select>
           </Labeled>
         </div>
         <div className="grid grid-cols-2 gap-3">
@@ -323,10 +397,71 @@ function Onboarding({ onComplete }: { onComplete: (profile: UserProfile) => void
             </Select>
           </Labeled>
         </div>
+        <div className="rounded-3xl bg-gray-50 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-black text-muted">推定消費カロリー</p>
+              <p className="mt-1 text-3xl font-black text-ink">{calculatedTargets.maintenanceCalories}kcal</p>
+            </div>
+            <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-muted shadow-sm">目安</span>
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <DashboardMetric label="目標カロリー" value={`${form.targetCalories}kcal`} />
+            <DashboardMetric label="目標タンパク質" value={`${form.targetProtein}g`} />
+          </div>
+          <p className="mt-3 text-xs font-semibold leading-5 text-muted">
+            体重・身長・年齢・性別・運動頻度から計算した目安です。あとから調整できます。
+          </p>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Labeled label="目標カロリー">
+            <NumberInput
+              value={form.targetCalories}
+              unit="kcal"
+              onChange={(value) => {
+                setAutoTargets(false);
+                update("targetCalories", value);
+              }}
+            />
+          </Labeled>
+          <Labeled label="目標タンパク質">
+            <NumberInput
+              value={form.targetProtein}
+              unit="g"
+              onChange={(value) => {
+                setAutoTargets(false);
+                update("targetProtein", value);
+              }}
+            />
+          </Labeled>
+        </div>
+        {!autoTargets && (
+          <Button
+            variant="secondary"
+            className="w-full"
+            onClick={() => {
+              setAutoTargets(true);
+              setForm((current) => ({
+                ...current,
+                estimatedMaintenanceCalories: calculatedTargets.maintenanceCalories,
+                targetCalories: calculatedTargets.targetCalories,
+                targetProtein: calculatedTargets.targetProtein
+              }));
+            }}
+          >
+            自動計算に戻す
+          </Button>
+        )}
         <Button
           size="lg"
           className="w-full"
-          onClick={() => onComplete({ ...form, createdAt: new Date().toISOString() })}
+          onClick={() =>
+            onComplete({
+              ...form,
+              estimatedMaintenanceCalories: calculatedTargets.maintenanceCalories,
+              createdAt: new Date().toISOString()
+            })
+          }
         >
           はじめる
           <ChevronRight className="h-5 w-5" />
@@ -427,11 +562,13 @@ function QuickRecordScreen({
   selectedDate,
   templates,
   customFoodPresets,
+  customWorkoutPresets,
   workouts,
   onAddMeal,
   onAddTemplate,
   onSaveCustomFood,
   onDeleteCustomFood,
+  onSaveCustomWorkout,
   onAddWorkout,
   onAddBodyLog
 }: {
@@ -439,11 +576,13 @@ function QuickRecordScreen({
   selectedDate: string;
   templates: MealTemplate[];
   customFoodPresets: FoodPreset[];
+  customWorkoutPresets: string[];
   workouts: WorkoutEntry[];
   onAddMeal: (food: FoodPreset, timing: MealTiming, note?: string) => void;
   onAddTemplate: (template: MealTemplate, timing: MealTiming) => void;
   onSaveCustomFood: (food: Omit<FoodPreset, "id"> & { id?: string }) => void;
   onDeleteCustomFood: (id: string) => void;
+  onSaveCustomWorkout: (exercise: string) => void;
   onAddWorkout: (entry: Omit<WorkoutEntry, "id" | "date" | "createdAt">) => void;
   onAddBodyLog: (entry: Omit<BodyLog, "id" | "date" | "createdAt">) => void;
 }) {
@@ -454,6 +593,10 @@ function QuickRecordScreen({
   const [bodyFat, setBodyFat] = useState<number | undefined>();
   const [exercise, setExercise] = useState("ベンチプレス");
   const [workout, setWorkout] = useState({ weight: 40, reps: 10, sets: 3, note: "" });
+  const exerciseOptions = useMemo(
+    () => [...customWorkoutPresets, ...workoutPresets.filter((item) => !customWorkoutPresets.includes(item))],
+    [customWorkoutPresets]
+  );
   const previous = workouts
     .filter((item) => item.exercise === exercise && item.date < selectedDate)
     .sort((a, b) => b.date.localeCompare(a.date))[0];
@@ -598,7 +741,7 @@ function QuickRecordScreen({
         <CardContent className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <Select value={exercise} onChange={(event) => setExercise(event.target.value)}>
-              {workoutPresets.map((item) => (
+              {exerciseOptions.map((item) => (
                 <option key={item}>{item}</option>
               ))}
             </Select>
@@ -613,6 +756,11 @@ function QuickRecordScreen({
           <Button className="w-full" onClick={() => onAddWorkout({ exercise, ...workout })}>
             筋トレを追加
           </Button>
+          {!customWorkoutPresets.includes(exercise) && (
+            <Button variant="secondary" className="w-full" onClick={() => onSaveCustomWorkout(exercise)}>
+              この種目を自分用に保存
+            </Button>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <NumberInput value={bodyWeight} unit="kg" onChange={setBodyWeight} />
             <NumberInput value={bodyFat ?? 0} unit="%" onChange={setBodyFat} />
@@ -711,16 +859,27 @@ function MealsScreen({
 function WorkoutsScreen({
   workouts,
   allWorkouts,
+  customWorkoutPresets,
   onAddWorkout,
-  onDeleteWorkout
+  onDeleteWorkout,
+  onSaveCustomWorkout,
+  onDeleteCustomWorkout
 }: {
   workouts: WorkoutEntry[];
   allWorkouts: WorkoutEntry[];
+  customWorkoutPresets: string[];
   onAddWorkout: (entry: Omit<WorkoutEntry, "id" | "date" | "createdAt">) => void;
   onDeleteWorkout: (id: string) => void;
+  onSaveCustomWorkout: (exercise: string) => void;
+  onDeleteCustomWorkout: (exercise: string) => void;
 }) {
   const [exercise, setExercise] = useState("スクワット");
+  const [customExercise, setCustomExercise] = useState("");
   const [form, setForm] = useState({ weight: 50, reps: 10, sets: 3, note: "" });
+  const exerciseOptions = useMemo(
+    () => [...customWorkoutPresets, ...workoutPresets.filter((item) => !customWorkoutPresets.includes(item))],
+    [customWorkoutPresets]
+  );
   const totalSets = workouts.reduce((sum, workout) => sum + workout.sets, 0);
   const previous = allWorkouts.filter((item) => item.exercise === exercise).sort((a, b) => b.date.localeCompare(a.date))[0];
 
@@ -733,10 +892,29 @@ function WorkoutsScreen({
         </CardHeader>
         <CardContent className="space-y-3">
           <Select value={exercise} onChange={(event) => setExercise(event.target.value)}>
-            {workoutPresets.map((item) => (
+            {exerciseOptions.map((item) => (
               <option key={item}>{item}</option>
             ))}
           </Select>
+          {customWorkoutPresets.length > 0 && (
+            <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+              {customWorkoutPresets.map((item) => (
+                <div key={item} className="flex shrink-0 items-center gap-2 rounded-full bg-emerald-50 py-1 pl-3 pr-1 text-xs font-black text-emerald-700">
+                  <button onClick={() => setExercise(item)}>{item}</button>
+                  <button
+                    aria-label={`${item}を削除`}
+                    onClick={() => {
+                      onDeleteCustomWorkout(item);
+                      if (exercise === item) setExercise("スクワット");
+                    }}
+                    className="grid h-7 w-7 place-items-center rounded-full bg-white text-gray-500"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <p className="rounded-2xl bg-amberSoft p-3 text-xs font-bold text-amber-800">
             前回: {previous ? `${previous.weight}kg x ${previous.reps}回 x ${previous.sets}セット` : "まだ記録がありません"}
           </p>
@@ -748,6 +926,32 @@ function WorkoutsScreen({
           <Input placeholder="メモ" value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} />
           <Button className="w-full" onClick={() => onAddWorkout({ exercise, ...form })}>
             追加する
+          </Button>
+          {!customWorkoutPresets.includes(exercise) && (
+            <Button variant="secondary" className="w-full" onClick={() => onSaveCustomWorkout(exercise)}>
+              この種目を自分用に保存
+            </Button>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>種目を追加</CardTitle>
+          <p className="text-sm text-muted">ジムのマシン名や自重メニューを自分用リストに保存できます。</p>
+        </CardHeader>
+        <CardContent className="flex gap-2">
+          <Input placeholder="例: インクラインプレス" value={customExercise} onChange={(event) => setCustomExercise(event.target.value)} />
+          <Button
+            size="icon"
+            onClick={() => {
+              if (!customExercise.trim()) return;
+              onSaveCustomWorkout(customExercise);
+              setExercise(customExercise.trim());
+              setCustomExercise("");
+            }}
+          >
+            <Plus className="h-5 w-5" />
           </Button>
         </CardContent>
       </Card>
