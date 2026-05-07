@@ -131,11 +131,14 @@ export default function Home() {
     saveMealEntries(next);
   };
 
-  const saveCustomFoodPreset = (food: Omit<FoodPreset, "id">) => {
+  const saveCustomFoodPreset = (food: Omit<FoodPreset, "id"> & { id?: string }) => {
     const name = food.name.trim();
     if (!name) return;
-    const nextFood: FoodPreset = { ...food, id: createId("my-food"), name };
-    const next = [nextFood, ...customFoodPresets.filter((item) => item.name.trim() !== name)].slice(0, 24);
+    const nextFood: FoodPreset = { ...food, id: food.id ?? createId("my-food"), name };
+    const next = [
+      nextFood,
+      ...customFoodPresets.filter((item) => item.id !== nextFood.id && item.name.trim() !== name)
+    ].slice(0, 24);
     setCustomFoodPresets(next);
     saveCustomFoodPresets(next);
   };
@@ -233,10 +236,18 @@ export default function Home() {
           onSaveTemplate={saveTodayTemplate}
         />
       )}
-      {activeTab === "workouts" && (
+  {activeTab === "workouts" && (
         <WorkoutsScreen workouts={todayWorkouts} allWorkouts={workoutEntries} onAddWorkout={addWorkout} onDeleteWorkout={deleteWorkout} />
       )}
-      {activeTab === "progress" && <ProgressScreen profile={profile} bodyLogs={bodyLogs} onAddBodyLog={addBodyLog} />}
+      {activeTab === "progress" && (
+        <ProgressScreen
+          profile={profile}
+          mealEntries={mealEntries}
+          workoutEntries={workoutEntries}
+          bodyLogs={bodyLogs}
+          onAddBodyLog={addBodyLog}
+        />
+      )}
       {activeTab === "coach" && <CoachScreen advice={advice} summary={summary} profile={profile} />}
     </AppShell>
   );
@@ -357,6 +368,8 @@ function DashboardScreen({
         </CardContent>
       </Card>
 
+      <ShareResultCard profile={profile} summary={summary} advice={advice} />
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -424,13 +437,14 @@ function QuickRecordScreen({
   workouts: WorkoutEntry[];
   onAddMeal: (food: FoodPreset, timing: MealTiming, note?: string) => void;
   onAddTemplate: (template: MealTemplate, timing: MealTiming) => void;
-  onSaveCustomFood: (food: Omit<FoodPreset, "id">) => void;
+  onSaveCustomFood: (food: Omit<FoodPreset, "id"> & { id?: string }) => void;
   onDeleteCustomFood: (id: string) => void;
   onAddWorkout: (entry: Omit<WorkoutEntry, "id" | "date" | "createdAt">) => void;
   onAddBodyLog: (entry: Omit<BodyLog, "id" | "date" | "createdAt">) => void;
 }) {
   const [timing, setTiming] = useState<MealTiming>("lunch");
   const [customFood, setCustomFood] = useState({ name: "", calories: 300, protein: 20, fat: 8, carbs: 35, note: "" });
+  const [editingFoodId, setEditingFoodId] = useState<string | undefined>();
   const [bodyWeight, setBodyWeight] = useState(profile.currentWeight);
   const [bodyFat, setBodyFat] = useState<number | undefined>();
   const [exercise, setExercise] = useState("ベンチプレス");
@@ -438,6 +452,17 @@ function QuickRecordScreen({
   const previous = workouts
     .filter((item) => item.exercise === exercise && item.date < selectedDate)
     .sort((a, b) => b.date.localeCompare(a.date))[0];
+  const editPreset = (food: FoodPreset, editable = false) => {
+    setCustomFood({
+      name: food.name,
+      calories: food.calories,
+      protein: food.protein,
+      fat: food.fat,
+      carbs: food.carbs,
+      note: editable ? "自分のプリセットを編集中" : "初期プリセットをコピー"
+    });
+    setEditingFoodId(editable ? food.id : undefined);
+  };
 
   return (
     <div className="space-y-4">
@@ -456,7 +481,15 @@ function QuickRecordScreen({
               </div>
               <div className="grid grid-cols-2 gap-3">
                 {customFoodPresets.map((food) => (
-                  <MyFoodButton key={food.id} food={food} onAdd={(item) => onAddMeal(item, timing)} onDelete={onDeleteCustomFood} />
+                  <FoodPresetButton
+                    key={food.id}
+                    food={food}
+                    badge="自分用"
+                    accent
+                    onAdd={(item) => onAddMeal(item, timing)}
+                    onEdit={(item) => editPreset(item, true)}
+                    onDelete={onDeleteCustomFood}
+                  />
                 ))}
               </div>
             </div>
@@ -467,7 +500,12 @@ function QuickRecordScreen({
           </div>
           <div className="grid grid-cols-2 gap-3">
             {foodPresets.map((food) => (
-              <FoodPresetButton key={food.id} food={food} onAdd={(item) => onAddMeal(item, timing)} />
+              <FoodPresetButton
+                key={food.id}
+                food={food}
+                onAdd={(item) => onAddMeal(item, timing)}
+                onEdit={(item) => editPreset(item)}
+              />
             ))}
           </div>
         </CardContent>
@@ -493,7 +531,8 @@ function QuickRecordScreen({
 
       <Card>
         <CardHeader>
-          <CardTitle>手入力</CardTitle>
+          <CardTitle>{editingFoodId ? "プリセットを編集" : "プリセットを作る"}</CardTitle>
+          <p className="text-sm text-muted">自分がよく食べる商品名と栄養を保存できます。</p>
         </CardHeader>
         <CardContent className="space-y-3">
           <Input placeholder="食品名" value={customFood.name} onChange={(event) => setCustomFood({ ...customFood, name: event.target.value })} />
@@ -520,16 +559,30 @@ function QuickRecordScreen({
             onClick={() => {
               if (!customFood.name.trim()) return;
               onSaveCustomFood({
+                id: editingFoodId,
                 name: customFood.name,
                 calories: customFood.calories,
                 protein: customFood.protein,
                 fat: customFood.fat,
                 carbs: customFood.carbs
               });
+              setEditingFoodId(undefined);
             }}
           >
-            マイ定番に保存
+            {editingFoodId ? "プリセットを更新" : "自分のプリセットに保存"}
           </Button>
+          {editingFoodId && (
+            <Button
+              variant="ghost"
+              className="w-full"
+              onClick={() => {
+                setEditingFoodId(undefined);
+                setCustomFood({ name: "", calories: 300, protein: 20, fat: 8, carbs: 35, note: "" });
+              }}
+            >
+              編集をキャンセル
+            </Button>
+          )}
         </CardContent>
       </Card>
 
@@ -713,14 +766,24 @@ function WorkoutsScreen({
 
 function ProgressScreen({
   profile,
+  mealEntries,
+  workoutEntries,
   bodyLogs,
   onAddBodyLog
 }: {
   profile: UserProfile;
+  mealEntries: MealEntry[];
+  workoutEntries: WorkoutEntry[];
   bodyLogs: BodyLog[];
   onAddBodyLog: (entry: Omit<BodyLog, "id" | "date" | "createdAt">) => void;
 }) {
   const sortedLogs = [...bodyLogs].sort((a, b) => a.date.localeCompare(b.date));
+  const dailySummaries = Array.from(
+    new Set([...mealEntries.map((meal) => meal.date), ...workoutEntries.map((workout) => workout.date), ...bodyLogs.map((log) => log.date)])
+  )
+    .sort((a, b) => b.localeCompare(a))
+    .slice(0, 14)
+    .map((day) => buildDailySummary(profile, mealEntries, workoutEntries, bodyLogs, day));
   const latest = sortedLogs.at(-1);
   const sevenAverage = sortedLogs.length
     ? round(sortedLogs.slice(-7).reduce((sum, log) => sum + log.weight, 0) / Math.min(sortedLogs.length, 7), 1)
@@ -764,6 +827,35 @@ function ProgressScreen({
 
       <Card>
         <CardContent className="space-y-3 p-5">
+          <h2 className="text-base font-black text-ink">日別ログ</h2>
+          {dailySummaries.length === 0 && <EmptyText icon={CalendarDays} text="食事・筋トレ・体重を記録すると、過去の日別ログがここに残ります。" />}
+          {dailySummaries.map((day) => (
+            <div key={day.date} className="rounded-3xl bg-gray-50 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-black text-ink">{day.date}</p>
+                  <p className="mt-1 text-xs font-bold text-muted">
+                    {day.calories}kcal / P{round(day.protein)}g / {day.workoutSets}セット
+                  </p>
+                </div>
+                <div className="rounded-2xl bg-white px-3 py-2 text-right shadow-sm">
+                  <p className="text-[10px] font-black text-muted">Score</p>
+                  <p className="text-lg font-black text-ink">{day.score}</p>
+                </div>
+              </div>
+              <div className="mt-3 grid grid-cols-3 gap-2 text-xs font-bold text-muted">
+                <span className="rounded-2xl bg-white px-3 py-2">食事 {day.mealCount}</span>
+                <span className="rounded-2xl bg-white px-3 py-2">{day.trainedToday ? "筋トレ済み" : "休養/未記録"}</span>
+                <span className="rounded-2xl bg-white px-3 py-2">{day.bodyWeight ? `${day.bodyWeight}kg` : "体重なし"}</span>
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="space-y-3 p-5">
+          <h2 className="text-base font-black text-ink">体重メモ</h2>
           {sortedLogs.slice(-14).reverse().map((log) => (
             <div key={log.id} className="rounded-2xl bg-gray-50 p-4">
               <div className="flex items-center justify-between">
@@ -858,40 +950,6 @@ function TimingPicker({ value, onChange }: { value: MealTiming; onChange: (value
   );
 }
 
-function MyFoodButton({
-  food,
-  onAdd,
-  onDelete
-}: {
-  food: FoodPreset;
-  onAdd: (food: FoodPreset) => void;
-  onDelete: (id: string) => void;
-}) {
-  return (
-    <div className="relative rounded-3xl border border-emerald-100 bg-emerald-50 p-1">
-      <button
-        onClick={() => onAdd(food)}
-        className="flex min-h-24 w-full flex-col justify-between rounded-[1.35rem] bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-card active:scale-[0.98]"
-      >
-        <div className="pr-8">
-          <p className="text-sm font-black leading-snug text-ink">{food.name}</p>
-          <p className="mt-2 text-xs font-bold text-emerald-700">マイ定番</p>
-        </div>
-        <p className="mt-3 text-xs font-semibold text-muted">
-          {food.calories}kcal / P{food.protein}g
-        </p>
-      </button>
-      <button
-        aria-label={`${food.name}を削除`}
-        onClick={() => onDelete(food.id)}
-        className="absolute right-3 top-3 grid h-8 w-8 place-items-center rounded-full bg-gray-100 text-gray-500 transition hover:bg-red-50 hover:text-red-600"
-      >
-        <Trash2 className="h-4 w-4" />
-      </button>
-    </div>
-  );
-}
-
 function Labeled({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block space-y-2">
@@ -948,6 +1006,56 @@ function DashboardMetric({ label, value }: { label: string; value: string }) {
       <p className="text-xs font-black text-muted">{label}</p>
       <p className="mt-1 text-xl font-black text-ink">{value}</p>
     </div>
+  );
+}
+
+function ShareResultCard({
+  profile,
+  summary,
+  advice
+}: {
+  profile: UserProfile;
+  summary: DailySummaryLike;
+  advice: ReturnType<typeof generateCoachAdvice>;
+}) {
+  const calorieRate = Math.min(120, Math.round((summary.calories / Math.max(profile.targetCalories, 1)) * 100));
+  const proteinRate = Math.min(120, Math.round((summary.protein / Math.max(profile.targetProtein, 1)) * 100));
+
+  return (
+    <Card className="overflow-hidden border-gray-900 bg-ink text-white">
+      <CardContent className="space-y-5 p-5">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-white/55">BodyNote AI</p>
+            <h2 className="mt-1 text-2xl font-black tracking-normal">{advice.scoreLabel}</h2>
+          </div>
+          <div className="grid h-20 w-20 place-items-center rounded-full bg-white text-ink">
+            <span className="text-3xl font-black">{summary.score}</span>
+          </div>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <div className="rounded-3xl bg-white/10 p-3">
+            <p className="text-[11px] font-bold text-white/55">kcal</p>
+            <p className="mt-1 text-xl font-black">{summary.calories}</p>
+            <p className="text-[11px] font-bold text-white/55">{calorieRate}%</p>
+          </div>
+          <div className="rounded-3xl bg-white/10 p-3">
+            <p className="text-[11px] font-bold text-white/55">Protein</p>
+            <p className="mt-1 text-xl font-black">{round(summary.protein)}g</p>
+            <p className="text-[11px] font-bold text-white/55">{proteinRate}%</p>
+          </div>
+          <div className="rounded-3xl bg-white/10 p-3">
+            <p className="text-[11px] font-bold text-white/55">Workout</p>
+            <p className="mt-1 text-xl font-black">{summary.workoutSets}</p>
+            <p className="text-[11px] font-bold text-white/55">sets</p>
+          </div>
+        </div>
+        <div className="rounded-3xl bg-white p-4 text-ink">
+          <p className="text-xs font-black text-muted">明日の一手</p>
+          <p className="mt-1 text-sm font-black leading-6">{advice.todos[0]}</p>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
