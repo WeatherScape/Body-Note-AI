@@ -94,7 +94,37 @@ export default function Home() {
   const [mealTemplates, setMealTemplates] = useState<MealTemplate[]>(initialMealTemplates);
   const [customFoodPresets, setCustomFoodPresets] = useState<FoodPreset[]>([]);
   const [customWorkoutPresets, setCustomWorkoutPresets] = useState<string[]>([]);
+  const [actionFeedback, setActionFeedback] = useState<{ id: number; message: string }>();
   const date = todayKey();
+
+  const playAddSound = () => {
+    try {
+      const AudioContextClass =
+        window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioContextClass) return;
+      const audio = new AudioContextClass();
+      const oscillator = audio.createOscillator();
+      const gain = audio.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(720, audio.currentTime);
+      oscillator.frequency.exponentialRampToValueAtTime(980, audio.currentTime + 0.08);
+      gain.gain.setValueAtTime(0.0001, audio.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.055, audio.currentTime + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, audio.currentTime + 0.16);
+      oscillator.connect(gain);
+      gain.connect(audio.destination);
+      oscillator.start();
+      oscillator.stop(audio.currentTime + 0.17);
+      window.setTimeout(() => void audio.close(), 240);
+    } catch {
+      // Audio feedback is nice-to-have. Some browsers block it.
+    }
+  };
+
+  const notifyAdded = (message: string) => {
+    playAddSound();
+    setActionFeedback({ id: Date.now(), message });
+  };
 
   useEffect(() => {
     const data = loadAppData();
@@ -109,6 +139,12 @@ export default function Home() {
     setCustomWorkoutPresets(data.customWorkoutPresets);
     setLoaded(true);
   }, []);
+
+  useEffect(() => {
+    if (!actionFeedback) return;
+    const timer = window.setTimeout(() => setActionFeedback(undefined), 1400);
+    return () => window.clearTimeout(timer);
+  }, [actionFeedback]);
 
   const todayMeals = useMemo(() => mealEntries.filter((meal) => meal.date === date), [mealEntries, date]);
   const todayWorkouts = useMemo(() => workoutEntries.filter((workout) => workout.date === date), [workoutEntries, date]);
@@ -138,6 +174,7 @@ export default function Home() {
     ];
     setMealEntries(next);
     saveMealEntries(next);
+    notifyAdded(`${food.name}を追加しました`);
   };
 
   const addTemplate = (template: MealTemplate, timing: MealTiming) => {
@@ -158,6 +195,7 @@ export default function Home() {
     const next = [...mealEntries, ...entries];
     setMealEntries(next);
     saveMealEntries(next);
+    notifyAdded(`${template.name}を追加しました`);
   };
 
   const deleteMeal = (id: string) => {
@@ -176,6 +214,7 @@ export default function Home() {
     ].slice(0, 24);
     setCustomFoodPresets(next);
     saveCustomFoodPresets(next);
+    notifyAdded("自分のプリセットに保存しました");
   };
 
   const deleteCustomFoodPreset = (id: string) => {
@@ -188,6 +227,7 @@ export default function Home() {
     const next = [...workoutEntries, { ...entry, id: createId("workout"), date, createdAt: new Date().toISOString() }];
     setWorkoutEntries(next);
     saveWorkoutEntries(next);
+    notifyAdded("筋トレを追加しました");
   };
 
   const saveCustomWorkoutPreset = (exercise: string) => {
@@ -196,6 +236,7 @@ export default function Home() {
     const next = [name, ...customWorkoutPresets.filter((item) => item !== name)].slice(0, 30);
     setCustomWorkoutPresets(next);
     saveCustomWorkoutPresets(next);
+    notifyAdded("自分用の種目に保存しました");
   };
 
   const deleteCustomWorkoutPreset = (exercise: string) => {
@@ -214,6 +255,7 @@ export default function Home() {
     const next = [...bodyLogs.filter((log) => log.date !== date), { ...entry, id: createId("body"), date, createdAt: new Date().toISOString() }];
     setBodyLogs(next);
     saveBodyLogs(next);
+    notifyAdded("体重を保存しました");
   };
 
   const saveTodayTemplate = (name: string, timing: MealTiming, templateId?: string) => {
@@ -239,6 +281,7 @@ export default function Home() {
     const next = [nextTemplate, ...mealTemplates.filter((template) => template.id !== nextTemplate.id)];
     setMealTemplates(next);
     saveMealTemplates(next);
+    notifyAdded(templateId ? "テンプレートを更新しました" : "テンプレートを保存しました");
   };
 
   const deleteMealTemplate = (id: string) => {
@@ -266,6 +309,7 @@ export default function Home() {
 
   return (
     <AppShell activeTab={activeTab === "settings" ? "dashboard" : activeTab} onTabChange={(tab) => setActiveTab(tab)} onSettings={() => setActiveTab("settings")}>
+      <ActionFeedback feedback={actionFeedback} />
       {activeTab === "settings" && (
         <SettingsScreen
           profile={profile}
@@ -287,17 +331,12 @@ export default function Home() {
       )}
       {activeTab === "quick" && (
         <QuickRecordScreen
-          selectedDate={date}
           templates={mealTemplates}
           customFoodPresets={customFoodPresets}
-          customWorkoutPresets={customWorkoutPresets}
           onAddMeal={addMeal}
           onAddTemplate={addTemplate}
           onSaveCustomFood={saveCustomFoodPreset}
           onDeleteCustomFood={deleteCustomFoodPreset}
-          onSaveCustomWorkout={saveCustomWorkoutPreset}
-          onAddWorkout={addWorkout}
-          workouts={workoutEntries}
         />
       )}
       {activeTab === "meals" && (
@@ -546,6 +585,20 @@ function SettingsScreen({ profile, onSave }: { profile: UserProfile; onSave: (pr
   );
 }
 
+function ActionFeedback({ feedback }: { feedback?: { id: number; message: string } }) {
+  if (!feedback) return null;
+
+  return (
+    <div
+      key={feedback.id}
+      className="fixed inset-x-0 bottom-24 z-40 mx-auto flex w-fit max-w-[calc(100%-2rem)] animate-[fadeSlide_1.4s_ease-out_forwards] items-center gap-2 rounded-full bg-ink px-5 py-3 text-sm font-black text-white shadow-soft"
+    >
+      <CheckCircle2 className="h-5 w-5 text-mint" />
+      {feedback.message}
+    </div>
+  );
+}
+
 function DashboardScreen({
   profile,
   summary,
@@ -633,42 +686,23 @@ function DashboardScreen({
 }
 
 function QuickRecordScreen({
-  selectedDate,
   templates,
   customFoodPresets,
-  customWorkoutPresets,
-  workouts,
   onAddMeal,
   onAddTemplate,
   onSaveCustomFood,
-  onDeleteCustomFood,
-  onSaveCustomWorkout,
-  onAddWorkout
+  onDeleteCustomFood
 }: {
-  selectedDate: string;
   templates: MealTemplate[];
   customFoodPresets: FoodPreset[];
-  customWorkoutPresets: string[];
-  workouts: WorkoutEntry[];
   onAddMeal: (food: FoodPreset, timing: MealTiming, note?: string) => void;
   onAddTemplate: (template: MealTemplate, timing: MealTiming) => void;
   onSaveCustomFood: (food: Omit<FoodPreset, "id"> & { id?: string }) => void;
   onDeleteCustomFood: (id: string) => void;
-  onSaveCustomWorkout: (exercise: string) => void;
-  onAddWorkout: (entry: Omit<WorkoutEntry, "id" | "date" | "createdAt">) => void;
 }) {
   const [timing, setTiming] = useState<MealTiming>("lunch");
   const [customFood, setCustomFood] = useState({ name: "", calories: 300, protein: 20, fat: 8, carbs: 35, note: "" });
   const [editingFoodId, setEditingFoodId] = useState<string | undefined>();
-  const [exercise, setExercise] = useState("ベンチプレス");
-  const [workout, setWorkout] = useState({ weight: 40, reps: 10, sets: 3, note: "" });
-  const exerciseOptions = useMemo(
-    () => [...customWorkoutPresets, ...workoutPresets.filter((item) => !customWorkoutPresets.includes(item))],
-    [customWorkoutPresets]
-  );
-  const previous = workouts
-    .filter((item) => item.exercise === exercise && item.date < selectedDate)
-    .sort((a, b) => b.date.localeCompare(a.date))[0];
   const editPreset = (food: FoodPreset, editable = false) => {
     setCustomFood({
       name: food.name,
@@ -808,36 +842,6 @@ function QuickRecordScreen({
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>筋トレを記録</CardTitle>
-          <p className="text-sm text-muted">体重は「進捗」タブで記録できます。</p>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <Select value={exercise} onChange={(event) => setExercise(event.target.value)}>
-              {exerciseOptions.map((item) => (
-                <option key={item}>{item}</option>
-              ))}
-            </Select>
-            <div className="rounded-2xl bg-gray-50 px-4 py-3 text-xs font-bold text-muted">
-              前回 {previous ? `${previous.weight}kg x ${previous.reps}` : "記録なし"}
-            </div>
-            <NumberInput value={workout.weight} unit="kg" onChange={(value) => setWorkout({ ...workout, weight: value })} />
-            <NumberInput value={workout.reps} unit="回" onChange={(value) => setWorkout({ ...workout, reps: value })} />
-            <NumberInput value={workout.sets} unit="set" onChange={(value) => setWorkout({ ...workout, sets: value })} />
-            <Input placeholder="メモ" value={workout.note} onChange={(event) => setWorkout({ ...workout, note: event.target.value })} />
-          </div>
-          <Button className="w-full" onClick={() => onAddWorkout({ exercise, ...workout })}>
-            筋トレを追加
-          </Button>
-          {!customWorkoutPresets.includes(exercise) && (
-            <Button variant="secondary" className="w-full" onClick={() => onSaveCustomWorkout(exercise)}>
-              この種目を自分用に保存
-            </Button>
-          )}
-        </CardContent>
-      </Card>
     </div>
   );
 }
