@@ -60,10 +60,32 @@ const defaultProfile: UserProfile = {
 };
 
 const mealTimingOptions = Object.entries(mealTimingLabels) as [MealTiming, string][];
+type AppView = TabKey | "settings";
+
+function normalizeProfile(profile?: UserProfile): UserProfile | undefined {
+  if (!profile) return undefined;
+  const merged = { ...defaultProfile, ...profile };
+  const targets = calculateNutritionTargets({
+    goal: merged.goal,
+    style: merged.style,
+    sex: merged.sex,
+    weight: merged.currentWeight,
+    height: merged.height,
+    age: merged.age,
+    activityLevel: merged.activityLevel
+  });
+
+  return {
+    ...merged,
+    estimatedMaintenanceCalories: merged.estimatedMaintenanceCalories || targets.maintenanceCalories,
+    targetCalories: merged.targetCalories || targets.targetCalories,
+    targetProtein: merged.targetProtein || targets.targetProtein
+  };
+}
 
 export default function Home() {
   const [loaded, setLoaded] = useState(false);
-  const [activeTab, setActiveTab] = useState<TabKey>("dashboard");
+  const [activeTab, setActiveTab] = useState<AppView>("dashboard");
   const [profile, setProfile] = useState<UserProfile | undefined>();
   const [mealEntries, setMealEntries] = useState<MealEntry[]>([]);
   const [workoutEntries, setWorkoutEntries] = useState<WorkoutEntry[]>([]);
@@ -75,7 +97,9 @@ export default function Home() {
 
   useEffect(() => {
     const data = loadAppData();
-    setProfile(data.profile);
+    const normalizedProfile = normalizeProfile(data.profile);
+    setProfile(normalizedProfile);
+    if (normalizedProfile && normalizedProfile !== data.profile) saveProfile(normalizedProfile);
     setMealEntries(data.mealEntries);
     setWorkoutEntries(data.workoutEntries);
     setBodyLogs(data.bodyLogs);
@@ -223,7 +247,17 @@ export default function Home() {
   if (!summary || !advice) return null;
 
   return (
-    <AppShell activeTab={activeTab} onTabChange={setActiveTab}>
+    <AppShell activeTab={activeTab === "settings" ? "dashboard" : activeTab} onTabChange={(tab) => setActiveTab(tab)} onSettings={() => setActiveTab("settings")}>
+      {activeTab === "settings" && (
+        <SettingsScreen
+          profile={profile}
+          onSave={(nextProfile) => {
+            setProfile(nextProfile);
+            saveProfile(nextProfile);
+            setActiveTab("dashboard");
+          }}
+        />
+      )}
       {activeTab === "dashboard" && (
         <DashboardScreen
           profile={profile}
@@ -235,7 +269,6 @@ export default function Home() {
       )}
       {activeTab === "quick" && (
         <QuickRecordScreen
-          profile={profile}
           selectedDate={date}
           templates={mealTemplates}
           customFoodPresets={customFoodPresets}
@@ -246,7 +279,6 @@ export default function Home() {
           onDeleteCustomFood={deleteCustomFoodPreset}
           onSaveCustomWorkout={saveCustomWorkoutPreset}
           onAddWorkout={addWorkout}
-          onAddBodyLog={addBodyLog}
           workouts={workoutEntries}
         />
       )}
@@ -286,8 +318,18 @@ export default function Home() {
   );
 }
 
-function Onboarding({ onComplete }: { onComplete: (profile: UserProfile) => void }) {
-  const [form, setForm] = useState(defaultProfile);
+function Onboarding({
+  onComplete,
+  initialProfile,
+  embedded = false,
+  submitLabel = "はじめる"
+}: {
+  onComplete: (profile: UserProfile) => void;
+  initialProfile?: UserProfile;
+  embedded?: boolean;
+  submitLabel?: string;
+}) {
+  const [form, setForm] = useState(initialProfile ?? defaultProfile);
   const [autoTargets, setAutoTargets] = useState(true);
   const calculatedTargets = useMemo(
     () =>
@@ -318,8 +360,8 @@ function Onboarding({ onComplete }: { onComplete: (profile: UserProfile) => void
   };
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-md flex-col px-5 py-8">
-      <div className="mb-8">
+    <main className={cn(embedded ? "w-full" : "mx-auto flex min-h-screen w-full max-w-md flex-col px-5 py-8")}>
+      <div className={cn("mb-8", embedded && "hidden")}>
         <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-3xl bg-ink text-white shadow-card">
           <Sparkles className="h-6 w-6" />
         </div>
@@ -463,11 +505,25 @@ function Onboarding({ onComplete }: { onComplete: (profile: UserProfile) => void
             })
           }
         >
-          はじめる
+          {submitLabel}
           <ChevronRight className="h-5 w-5" />
         </Button>
       </Card>
     </main>
+  );
+}
+
+function SettingsScreen({ profile, onSave }: { profile: UserProfile; onSave: (profile: UserProfile) => void }) {
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-2xl font-black tracking-normal text-ink">目標設定</h2>
+        <p className="mt-2 text-sm leading-6 text-muted">
+          体重・身長・年齢・運動頻度を入れると、消費カロリーと目標カロリーを再計算できます。
+        </p>
+      </div>
+      <Onboarding initialProfile={profile} embedded submitLabel="設定を保存" onComplete={onSave} />
+    </div>
   );
 }
 
@@ -558,7 +614,6 @@ function DashboardScreen({
 }
 
 function QuickRecordScreen({
-  profile,
   selectedDate,
   templates,
   customFoodPresets,
@@ -569,10 +624,8 @@ function QuickRecordScreen({
   onSaveCustomFood,
   onDeleteCustomFood,
   onSaveCustomWorkout,
-  onAddWorkout,
-  onAddBodyLog
+  onAddWorkout
 }: {
-  profile: UserProfile;
   selectedDate: string;
   templates: MealTemplate[];
   customFoodPresets: FoodPreset[];
@@ -584,13 +637,10 @@ function QuickRecordScreen({
   onDeleteCustomFood: (id: string) => void;
   onSaveCustomWorkout: (exercise: string) => void;
   onAddWorkout: (entry: Omit<WorkoutEntry, "id" | "date" | "createdAt">) => void;
-  onAddBodyLog: (entry: Omit<BodyLog, "id" | "date" | "createdAt">) => void;
 }) {
   const [timing, setTiming] = useState<MealTiming>("lunch");
   const [customFood, setCustomFood] = useState({ name: "", calories: 300, protein: 20, fat: 8, carbs: 35, note: "" });
   const [editingFoodId, setEditingFoodId] = useState<string | undefined>();
-  const [bodyWeight, setBodyWeight] = useState(profile.currentWeight);
-  const [bodyFat, setBodyFat] = useState<number | undefined>();
   const [exercise, setExercise] = useState("ベンチプレス");
   const [workout, setWorkout] = useState({ weight: 40, reps: 10, sets: 3, note: "" });
   const exerciseOptions = useMemo(
@@ -736,7 +786,8 @@ function QuickRecordScreen({
 
       <Card>
         <CardHeader>
-          <CardTitle>筋トレと体重</CardTitle>
+          <CardTitle>筋トレを記録</CardTitle>
+          <p className="text-sm text-muted">体重は「進捗」タブで記録できます。</p>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
@@ -761,13 +812,6 @@ function QuickRecordScreen({
               この種目を自分用に保存
             </Button>
           )}
-          <div className="grid grid-cols-2 gap-3">
-            <NumberInput value={bodyWeight} unit="kg" onChange={setBodyWeight} />
-            <NumberInput value={bodyFat ?? 0} unit="%" onChange={setBodyFat} />
-          </div>
-          <Button variant="secondary" className="w-full" onClick={() => onAddBodyLog({ weight: bodyWeight, bodyFat: bodyFat || undefined })}>
-            体重を記録
-          </Button>
         </CardContent>
       </Card>
     </div>

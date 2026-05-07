@@ -1,7 +1,7 @@
 "use client";
 
 import type React from "react";
-import { BarChart3, Bot, Dumbbell, Home, PlusCircle, Soup } from "lucide-react";
+import { BarChart3, Bot, Dumbbell, Home, PlusCircle, SlidersHorizontal, Soup } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export type TabKey = "dashboard" | "quick" | "meals" | "workouts" | "progress" | "coach";
@@ -18,10 +18,11 @@ const tabs: { key: TabKey; label: string; icon: React.ComponentType<{ className?
 type AppShellProps = {
   activeTab: TabKey;
   onTabChange: (tab: TabKey) => void;
+  onSettings?: () => void;
   children: React.ReactNode;
 };
 
-export function AppShell({ activeTab, onTabChange, children }: AppShellProps) {
+export function AppShell({ activeTab, onTabChange, onSettings, children }: AppShellProps) {
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-md flex-col px-4 pb-28 pt-5 sm:max-w-xl">
       <header className="mb-5 flex items-center justify-between">
@@ -29,9 +30,13 @@ export function AppShell({ activeTab, onTabChange, children }: AppShellProps) {
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">BodyNote AI</p>
           <h1 className="text-2xl font-black tracking-normal text-ink">今日の体づくり</h1>
         </div>
-        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white shadow-card">
-          <Bot className="h-5 w-5 text-apple" />
-        </div>
+        <button
+          aria-label="目標設定"
+          onClick={onSettings}
+          className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white shadow-card transition active:scale-95"
+        >
+          <SlidersHorizontal className="h-5 w-5 text-apple" />
+        </button>
       </header>
       <main className="flex-1">{children}</main>
       <nav className="safe-bottom fixed inset-x-0 bottom-0 z-30 border-t border-gray-200/80 bg-white/92 px-2 pb-2 pt-2 shadow-[0_-10px_30px_rgba(15,23,42,0.08)] backdrop-blur-xl">
