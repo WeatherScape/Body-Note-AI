@@ -32,6 +32,7 @@ import { buildDailySummary } from "@/lib/summary";
 import {
   loadAppData,
   saveBodyLogs,
+  saveCustomFoodPresets,
   saveMealEntries,
   saveMealTemplates,
   saveProfile,
@@ -61,6 +62,7 @@ export default function Home() {
   const [workoutEntries, setWorkoutEntries] = useState<WorkoutEntry[]>([]);
   const [bodyLogs, setBodyLogs] = useState<BodyLog[]>([]);
   const [mealTemplates, setMealTemplates] = useState<MealTemplate[]>(initialMealTemplates);
+  const [customFoodPresets, setCustomFoodPresets] = useState<FoodPreset[]>([]);
   const date = todayKey();
 
   useEffect(() => {
@@ -70,6 +72,7 @@ export default function Home() {
     setWorkoutEntries(data.workoutEntries);
     setBodyLogs(data.bodyLogs);
     setMealTemplates(data.mealTemplates.length ? data.mealTemplates : initialMealTemplates);
+    setCustomFoodPresets(data.customFoodPresets);
     setLoaded(true);
   }, []);
 
@@ -126,6 +129,21 @@ export default function Home() {
     const next = mealEntries.filter((meal) => meal.id !== id);
     setMealEntries(next);
     saveMealEntries(next);
+  };
+
+  const saveCustomFoodPreset = (food: Omit<FoodPreset, "id">) => {
+    const name = food.name.trim();
+    if (!name) return;
+    const nextFood: FoodPreset = { ...food, id: createId("my-food"), name };
+    const next = [nextFood, ...customFoodPresets.filter((item) => item.name.trim() !== name)].slice(0, 24);
+    setCustomFoodPresets(next);
+    saveCustomFoodPresets(next);
+  };
+
+  const deleteCustomFoodPreset = (id: string) => {
+    const next = customFoodPresets.filter((food) => food.id !== id);
+    setCustomFoodPresets(next);
+    saveCustomFoodPresets(next);
   };
 
   const addWorkout = (entry: Omit<WorkoutEntry, "id" | "date" | "createdAt">) => {
@@ -194,8 +212,11 @@ export default function Home() {
           profile={profile}
           selectedDate={date}
           templates={mealTemplates}
+          customFoodPresets={customFoodPresets}
           onAddMeal={addMeal}
           onAddTemplate={addTemplate}
+          onSaveCustomFood={saveCustomFoodPreset}
+          onDeleteCustomFood={deleteCustomFoodPreset}
           onAddWorkout={addWorkout}
           onAddBodyLog={addBodyLog}
           workouts={workoutEntries}
@@ -387,18 +408,24 @@ function QuickRecordScreen({
   profile,
   selectedDate,
   templates,
+  customFoodPresets,
   workouts,
   onAddMeal,
   onAddTemplate,
+  onSaveCustomFood,
+  onDeleteCustomFood,
   onAddWorkout,
   onAddBodyLog
 }: {
   profile: UserProfile;
   selectedDate: string;
   templates: MealTemplate[];
+  customFoodPresets: FoodPreset[];
   workouts: WorkoutEntry[];
   onAddMeal: (food: FoodPreset, timing: MealTiming, note?: string) => void;
   onAddTemplate: (template: MealTemplate, timing: MealTiming) => void;
+  onSaveCustomFood: (food: Omit<FoodPreset, "id">) => void;
+  onDeleteCustomFood: (id: string) => void;
   onAddWorkout: (entry: Omit<WorkoutEntry, "id" | "date" | "createdAt">) => void;
   onAddBodyLog: (entry: Omit<BodyLog, "id" | "date" | "createdAt">) => void;
 }) {
@@ -421,6 +448,23 @@ function QuickRecordScreen({
         </CardHeader>
         <CardContent className="space-y-4">
           <TimingPicker value={timing} onChange={setTiming} />
+          {customFoodPresets.length > 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-black text-ink">マイ定番</p>
+                <p className="text-xs font-bold text-muted">{customFoodPresets.length}件</p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                {customFoodPresets.map((food) => (
+                  <MyFoodButton key={food.id} food={food} onAdd={(item) => onAddMeal(item, timing)} onDelete={onDeleteCustomFood} />
+                ))}
+              </div>
+            </div>
+          )}
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-black text-ink">おすすめプリセット</p>
+            <p className="text-xs font-bold text-muted">最初から使える定番</p>
+          </div>
           <div className="grid grid-cols-2 gap-3">
             {foodPresets.map((food) => (
               <FoodPresetButton key={food.id} food={food} onAdd={(item) => onAddMeal(item, timing)} />
@@ -469,6 +513,22 @@ function QuickRecordScreen({
             }}
           >
             食事を追加
+          </Button>
+          <Button
+            variant="secondary"
+            className="w-full"
+            onClick={() => {
+              if (!customFood.name.trim()) return;
+              onSaveCustomFood({
+                name: customFood.name,
+                calories: customFood.calories,
+                protein: customFood.protein,
+                fat: customFood.fat,
+                carbs: customFood.carbs
+              });
+            }}
+          >
+            マイ定番に保存
           </Button>
         </CardContent>
       </Card>
@@ -794,6 +854,40 @@ function TimingPicker({ value, onChange }: { value: MealTiming; onChange: (value
           {label}
         </button>
       ))}
+    </div>
+  );
+}
+
+function MyFoodButton({
+  food,
+  onAdd,
+  onDelete
+}: {
+  food: FoodPreset;
+  onAdd: (food: FoodPreset) => void;
+  onDelete: (id: string) => void;
+}) {
+  return (
+    <div className="relative rounded-3xl border border-emerald-100 bg-emerald-50 p-1">
+      <button
+        onClick={() => onAdd(food)}
+        className="flex min-h-24 w-full flex-col justify-between rounded-[1.35rem] bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-card active:scale-[0.98]"
+      >
+        <div className="pr-8">
+          <p className="text-sm font-black leading-snug text-ink">{food.name}</p>
+          <p className="mt-2 text-xs font-bold text-emerald-700">マイ定番</p>
+        </div>
+        <p className="mt-3 text-xs font-semibold text-muted">
+          {food.calories}kcal / P{food.protein}g
+        </p>
+      </button>
+      <button
+        aria-label={`${food.name}を削除`}
+        onClick={() => onDelete(food.id)}
+        className="absolute right-3 top-3 grid h-8 w-8 place-items-center rounded-full bg-gray-100 text-gray-500 transition hover:bg-red-50 hover:text-red-600"
+      >
+        <Trash2 className="h-4 w-4" />
+      </button>
     </div>
   );
 }

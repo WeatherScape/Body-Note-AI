@@ -1,6 +1,6 @@
 "use client";
 
-import type { BodyLog, MealEntry, MealTemplate, UserProfile, WorkoutEntry } from "@/lib/types";
+import type { BodyLog, FoodPreset, MealEntry, MealTemplate, UserProfile, WorkoutEntry } from "@/lib/types";
 import { initialMealTemplates } from "@/lib/presets";
 
 const keys = {
@@ -8,7 +8,8 @@ const keys = {
   mealEntries: "bodynote:mealEntries",
   workoutEntries: "bodynote:workoutEntries",
   bodyLogs: "bodynote:bodyLogs",
-  mealTemplates: "bodynote:mealTemplates"
+  mealTemplates: "bodynote:mealTemplates",
+  customFoodPresets: "bodynote:customFoodPresets"
 } as const;
 
 function readJson<T>(key: string, fallback: T): T {
@@ -32,6 +33,7 @@ export type AppData = {
   workoutEntries: WorkoutEntry[];
   bodyLogs: BodyLog[];
   mealTemplates: MealTemplate[];
+  customFoodPresets: FoodPreset[];
 };
 
 export function loadAppData(): AppData {
@@ -40,7 +42,8 @@ export function loadAppData(): AppData {
     mealEntries: readJson<MealEntry[]>(keys.mealEntries, []),
     workoutEntries: readJson<WorkoutEntry[]>(keys.workoutEntries, []),
     bodyLogs: readJson<BodyLog[]>(keys.bodyLogs, []),
-    mealTemplates: readJson<MealTemplate[]>(keys.mealTemplates, initialMealTemplates)
+    mealTemplates: readJson<MealTemplate[]>(keys.mealTemplates, initialMealTemplates),
+    customFoodPresets: readJson<FoodPreset[]>(keys.customFoodPresets, [])
   };
 }
 
@@ -62,4 +65,8 @@ export function saveBodyLogs(entries: BodyLog[]) {
 
 export function saveMealTemplates(entries: MealTemplate[]) {
   writeJson(keys.mealTemplates, entries);
+}
+
+export function saveCustomFoodPresets(entries: FoodPreset[]) {
+  writeJson(keys.customFoodPresets, entries);
 }
