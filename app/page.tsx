@@ -8,13 +8,19 @@ import {
   CalendarDays,
   CheckCircle2,
   ChevronRight,
+  Clipboard,
+  Download,
   Dumbbell,
   Flame,
   HeartPulse,
+  HelpCircle,
   Pencil,
   Plus,
+  RotateCcw,
   Scale,
+  Search,
   Sparkles,
+  Star,
   Trash2,
   Utensils
 } from "lucide-react";
@@ -95,6 +101,7 @@ export default function Home() {
   const [customFoodPresets, setCustomFoodPresets] = useState<FoodPreset[]>([]);
   const [customWorkoutPresets, setCustomWorkoutPresets] = useState<string[]>([]);
   const [actionFeedback, setActionFeedback] = useState<{ id: number; message: string }>();
+  const [showTutorial, setShowTutorial] = useState(false);
   const date = todayKey();
 
   const playAddSound = () => {
@@ -137,6 +144,7 @@ export default function Home() {
     setMealTemplates(data.mealTemplates.length ? data.mealTemplates : initialMealTemplates);
     setCustomFoodPresets(data.customFoodPresets);
     setCustomWorkoutPresets(data.customWorkoutPresets);
+    setShowTutorial(window.localStorage.getItem("bodynote:tutorialDismissed") !== "true");
     setLoaded(true);
   }, []);
 
@@ -290,6 +298,37 @@ export default function Home() {
     saveMealTemplates(next);
   };
 
+  const dismissTutorial = () => {
+    setShowTutorial(false);
+    window.localStorage.setItem("bodynote:tutorialDismissed", "true");
+  };
+
+  const exportData = () => ({
+    profile,
+    mealEntries,
+    workoutEntries,
+    bodyLogs,
+    mealTemplates,
+    customFoodPresets,
+    customWorkoutPresets,
+    exportedAt: new Date().toISOString()
+  });
+
+  const resetAllData = () => {
+    if (!window.confirm("すべての記録と設定を削除します。元に戻せません。")) return;
+    [
+      "bodynote:userProfile",
+      "bodynote:mealEntries",
+      "bodynote:workoutEntries",
+      "bodynote:bodyLogs",
+      "bodynote:mealTemplates",
+      "bodynote:customFoodPresets",
+      "bodynote:customWorkoutPresets",
+      "bodynote:tutorialDismissed"
+    ].forEach((key) => window.localStorage.removeItem(key));
+    window.location.reload();
+  };
+
   if (!loaded) {
     return <div className="grid min-h-screen place-items-center text-sm font-bold text-muted">BodyNote AI を準備中...</div>;
   }
@@ -313,6 +352,9 @@ export default function Home() {
       {activeTab === "settings" && (
         <SettingsScreen
           profile={profile}
+          exportData={exportData}
+          resetAllData={resetAllData}
+          onNotify={notifyAdded}
           onSave={(nextProfile) => {
             setProfile(nextProfile);
             saveProfile(nextProfile);
@@ -325,6 +367,8 @@ export default function Home() {
           profile={profile}
           summary={summary}
           advice={advice}
+          showTutorial={showTutorial}
+          onDismissTutorial={dismissTutorial}
           onQuick={() => setActiveTab("quick")}
           onCoach={() => setActiveTab("coach")}
         />
@@ -571,7 +615,19 @@ function Onboarding({
   );
 }
 
-function SettingsScreen({ profile, onSave }: { profile: UserProfile; onSave: (profile: UserProfile) => void }) {
+function SettingsScreen({
+  profile,
+  exportData,
+  resetAllData,
+  onNotify,
+  onSave
+}: {
+  profile: UserProfile;
+  exportData: () => unknown;
+  resetAllData: () => void;
+  onNotify: (message: string) => void;
+  onSave: (profile: UserProfile) => void;
+}) {
   return (
     <div className="space-y-4">
       <div>
@@ -581,7 +637,134 @@ function SettingsScreen({ profile, onSave }: { profile: UserProfile; onSave: (pr
         </p>
       </div>
       <Onboarding initialProfile={profile} embedded submitLabel="設定を保存" onComplete={onSave} />
+      <FeedbackCard onNotify={onNotify} />
+      <DataToolsCard exportData={exportData} resetAllData={resetAllData} onNotify={onNotify} />
     </div>
+  );
+}
+
+function FeedbackCard({ onNotify }: { onNotify: (message: string) => void }) {
+  const [rating, setRating] = useState("5");
+  const [category, setCategory] = useState("使いにくいところ");
+  const [message, setMessage] = useState("");
+  const feedbackText = `BodyNote AI feedback\n評価: ${rating}/5\nカテゴリ: ${category}\n内容: ${message || "未入力"}`;
+
+  const copyFeedback = async () => {
+    await navigator.clipboard.writeText(feedbackText);
+    onNotify("フィードバック文をコピーしました");
+  };
+
+  const mailFeedback = () => {
+    const subject = encodeURIComponent("BodyNote AI フィードバック");
+    const body = encodeURIComponent(feedbackText);
+    window.location.href = `mailto:?subject=${subject}&body=${body}`;
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <HelpCircle className="h-5 w-5 text-apple" />
+          フィードバック
+        </CardTitle>
+        <p className="text-sm leading-6 text-muted">使ってみて迷ったところ、欲しい機能、続けにくい理由をそのまま残せます。</p>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          <Select value={rating} onChange={(event) => setRating(event.target.value)}>
+            <option value="5">5 とても良い</option>
+            <option value="4">4 良い</option>
+            <option value="3">3 普通</option>
+            <option value="2">2 微妙</option>
+            <option value="1">1 使いにくい</option>
+          </Select>
+          <Select value={category} onChange={(event) => setCategory(event.target.value)}>
+            <option>使いにくいところ</option>
+            <option>欲しい機能</option>
+            <option>表示がわかりにくい</option>
+            <option>バグっぽい</option>
+            <option>その他</option>
+          </Select>
+        </div>
+        <Textarea placeholder="例: 初回設定で何を入れたらいいかわからなかった" value={message} onChange={(event) => setMessage(event.target.value)} />
+        <div className="grid grid-cols-2 gap-3">
+          <Button variant="secondary" onClick={copyFeedback}>
+            <Clipboard className="h-4 w-4" />
+            コピー
+          </Button>
+          <Button onClick={mailFeedback}>
+            <ChevronRight className="h-4 w-4" />
+            メール
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function DataToolsCard({
+  exportData,
+  resetAllData,
+  onNotify
+}: {
+  exportData: () => unknown;
+  resetAllData: () => void;
+  onNotify: (message: string) => void;
+}) {
+  const copyExport = async () => {
+    await navigator.clipboard.writeText(JSON.stringify(exportData(), null, 2));
+    onNotify("データを書き出しました");
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>データ管理</CardTitle>
+        <p className="text-sm leading-6 text-muted">テスト中の記録を控えたり、最初からやり直したい時に使います。</p>
+      </CardHeader>
+      <CardContent className="grid grid-cols-2 gap-3">
+        <Button variant="secondary" onClick={copyExport}>
+          <Download className="h-4 w-4" />
+          出力
+        </Button>
+        <Button variant="danger" onClick={resetAllData}>
+          <RotateCcw className="h-4 w-4" />
+          リセット
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+function TutorialCard({ onDismiss }: { onDismiss: () => void }) {
+  const steps = [
+    "まずは記録タブで食べたものを1つ追加",
+    "よく食べるものは自分のプリセットに保存",
+    "今日タブでスコアと次の行動を見る"
+  ];
+
+  return (
+    <Card className="border-blue-100 bg-blue-50/80">
+      <CardContent className="space-y-4 p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-black text-apple">最初の使い方</p>
+            <h2 className="mt-1 text-xl font-black tracking-normal text-ink">今日やることは3つだけ</h2>
+          </div>
+          <Button variant="ghost" size="sm" onClick={onDismiss}>
+            閉じる
+          </Button>
+        </div>
+        <div className="grid gap-2">
+          {steps.map((step, index) => (
+            <div key={step} className="flex items-center gap-3 rounded-2xl bg-white p-3 text-sm font-bold text-ink">
+              <span className="grid h-7 w-7 place-items-center rounded-full bg-ink text-xs text-white">{index + 1}</span>
+              {step}
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -603,17 +786,22 @@ function DashboardScreen({
   profile,
   summary,
   advice,
+  showTutorial,
+  onDismissTutorial,
   onQuick,
   onCoach
 }: {
   profile: UserProfile;
   summary: NonNullable<ReturnType<typeof buildDailySummary>>;
   advice: NonNullable<ReturnType<typeof generateCoachAdvice>>;
+  showTutorial: boolean;
+  onDismissTutorial: () => void;
   onQuick: () => void;
   onCoach: () => void;
 }) {
   return (
     <div className="space-y-4">
+      {showTutorial && <TutorialCard onDismiss={onDismissTutorial} />}
       <Card className="overflow-hidden">
         <CardContent className="space-y-5 p-5">
           <div className="flex items-center justify-between gap-4">
@@ -701,6 +889,7 @@ function QuickRecordScreen({
   onDeleteCustomFood: (id: string) => void;
 }) {
   const [timing, setTiming] = useState<MealTiming>("lunch");
+  const [foodQuery, setFoodQuery] = useState("");
   const [customFood, setCustomFood] = useState({ name: "", calories: 300, protein: 20, fat: 8, carbs: 35, note: "" });
   const [editingFoodId, setEditingFoodId] = useState<string | undefined>();
   const editPreset = (food: FoodPreset, editable = false) => {
@@ -714,6 +903,9 @@ function QuickRecordScreen({
     });
     setEditingFoodId(editable ? food.id : undefined);
   };
+  const normalizedQuery = foodQuery.trim().toLowerCase();
+  const visibleCustomFoods = customFoodPresets.filter((food) => food.name.toLowerCase().includes(normalizedQuery));
+  const visibleDefaultFoods = foodPresets.filter((food) => food.name.toLowerCase().includes(normalizedQuery));
 
   return (
     <div className="space-y-4">
@@ -724,6 +916,10 @@ function QuickRecordScreen({
         </CardHeader>
         <CardContent className="space-y-4">
           <TimingPicker value={timing} onChange={setTiming} />
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+            <Input className="pl-11" placeholder="食品を検索" value={foodQuery} onChange={(event) => setFoodQuery(event.target.value)} />
+          </div>
           {customFoodPresets.length > 0 && (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
@@ -731,7 +927,7 @@ function QuickRecordScreen({
                 <p className="text-xs font-bold text-muted">{customFoodPresets.length}件</p>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                {customFoodPresets.map((food) => (
+                {visibleCustomFoods.map((food) => (
                   <FoodPresetButton
                     key={food.id}
                     food={food}
@@ -750,7 +946,7 @@ function QuickRecordScreen({
             <p className="text-xs font-bold text-muted">最初から使える定番</p>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            {foodPresets.map((food) => (
+            {visibleDefaultFoods.map((food) => (
               <FoodPresetButton
                 key={food.id}
                 food={food}
@@ -759,6 +955,11 @@ function QuickRecordScreen({
               />
             ))}
           </div>
+          {visibleCustomFoods.length === 0 && visibleDefaultFoods.length === 0 && (
+            <div className="rounded-3xl bg-gray-50 p-6 text-center text-sm font-semibold text-muted">
+              見つかりません。下の「プリセットを作る」から追加できます。
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -1120,6 +1321,14 @@ function ProgressScreen({
     .sort((a, b) => b.localeCompare(a))
     .slice(0, 14)
     .map((day) => buildDailySummary(profile, mealEntries, workoutEntries, bodyLogs, day));
+  const weeklySummaries = dailySummaries.slice(0, 7);
+  const weeklyAverageScore = weeklySummaries.length
+    ? Math.round(weeklySummaries.reduce((sum, day) => sum + day.score, 0) / weeklySummaries.length)
+    : 0;
+  const weeklyWorkoutSets = weeklySummaries.reduce((sum, day) => sum + day.workoutSets, 0);
+  const weeklyAverageProtein = weeklySummaries.length
+    ? Math.round(weeklySummaries.reduce((sum, day) => sum + day.protein, 0) / weeklySummaries.length)
+    : 0;
   const latest = sortedLogs.at(-1);
   const sevenAverage = sortedLogs.length
     ? round(sortedLogs.slice(-7).reduce((sum, log) => sum + log.weight, 0) / Math.min(sortedLogs.length, 7), 1)
@@ -1142,6 +1351,35 @@ function ProgressScreen({
             <MiniStat icon={HeartPulse} label="目標差" value={latest ? formatSigned(latest.weight - profile.targetWeight) : "-"} sub="kg" tone="mint" />
           </div>
           <ProgressChart logs={sortedLogs} />
+        </CardContent>
+      </Card>
+
+      <Card className="bg-ink text-white">
+        <CardContent className="space-y-4 p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-white/55">Weekly Review</p>
+              <h2 className="mt-1 text-2xl font-black tracking-normal">今週の流れ</h2>
+            </div>
+            <Star className="h-7 w-7 text-mint" />
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="rounded-3xl bg-white/10 p-3">
+              <p className="text-[11px] font-bold text-white/55">記録日</p>
+              <p className="mt-1 text-2xl font-black">{weeklySummaries.length}</p>
+            </div>
+            <div className="rounded-3xl bg-white/10 p-3">
+              <p className="text-[11px] font-bold text-white/55">平均Score</p>
+              <p className="mt-1 text-2xl font-black">{weeklyAverageScore}</p>
+            </div>
+            <div className="rounded-3xl bg-white/10 p-3">
+              <p className="text-[11px] font-bold text-white/55">筋トレ</p>
+              <p className="mt-1 text-2xl font-black">{weeklyWorkoutSets}</p>
+            </div>
+          </div>
+          <p className="rounded-3xl bg-white p-4 text-sm font-bold leading-6 text-ink">
+            平均タンパク質は{weeklyAverageProtein}g。まずは記録日を増やすほど、次の改善点が見えやすくなります。
+          </p>
         </CardContent>
       </Card>
 
