@@ -19,6 +19,9 @@ import {
   RotateCcw,
   Scale,
   Search,
+  Send,
+  Share2,
+  Smartphone,
   Sparkles,
   Star,
   Trash2,
@@ -69,7 +72,24 @@ const defaultProfile: UserProfile = {
 };
 
 const mealTimingOptions = Object.entries(mealTimingLabels) as [MealTiming, string][];
+const GOOGLE_FEEDBACK_FORM_URL = "";
+const QUICK_START_KEY = "bodynote:quickStartDone";
+const INSTALL_PROMPT_KEY = "bodynote:installPromptDismissed";
 type AppView = TabKey | "settings";
+type AnalyticsEventName =
+  | "onboarding_complete"
+  | "tab_change"
+  | "quick_add_food"
+  | "save_custom_food"
+  | "save_body_log"
+  | "add_workout"
+  | "feedback_open"
+  | "share_image_download"
+  | "install_prompt_click";
+type BeforeInstallPromptEvent = Event & {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
+};
 type ProgressInsight = {
   latestWeight?: number;
   startWeight: number;
@@ -85,6 +105,12 @@ type ProgressInsight = {
   weeklyWorkoutSets: number;
   weeklyScoreDelta?: number;
 };
+
+function trackEvent(name: AnalyticsEventName, data?: Record<string, string | number | boolean>) {
+  if (typeof window === "undefined") return;
+  const analytics = window as unknown as { va?: (type: "event", eventName: string, payload?: Record<string, string | number | boolean>) => void };
+  analytics.va?.("event", name, data);
+}
 
 function dateFromKey(key: string) {
   const [year, month, day] = key.split("-").map(Number);
@@ -194,6 +220,11 @@ export default function Home() {
   const [customWorkoutPresets, setCustomWorkoutPresets] = useState<string[]>([]);
   const [actionFeedback, setActionFeedback] = useState<{ id: number; message: string }>();
   const [showTutorial, setShowTutorial] = useState(false);
+  const [quickStartDone, setQuickStartDone] = useState(true);
+  const [deferredInstallPrompt, setDeferredInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [installPromptDismissed, setInstallPromptDismissed] = useState(true);
+  const [isStandalone, setIsStandalone] = useState(false);
+  const [isIos, setIsIos] = useState(false);
   const date = todayKey();
 
   const playAddSound = () => {
@@ -237,7 +268,23 @@ export default function Home() {
     setCustomFoodPresets(data.customFoodPresets);
     setCustomWorkoutPresets(data.customWorkoutPresets);
     setShowTutorial(window.localStorage.getItem("bodynote:tutorialDismissed") !== "true");
+    setQuickStartDone(window.localStorage.getItem(QUICK_START_KEY) === "true");
+    setInstallPromptDismissed(window.localStorage.getItem(INSTALL_PROMPT_KEY) === "true");
+    setIsStandalone(
+      window.matchMedia("(display-mode: standalone)").matches ||
+        (window.navigator as Navigator & { standalone?: boolean }).standalone === true
+    );
+    setIsIos(/iphone|ipad|ipod/i.test(window.navigator.userAgent));
     setLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setDeferredInstallPrompt(event as BeforeInstallPromptEvent);
+    };
+    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    return () => window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
   }, []);
 
   useEffect(() => {
@@ -260,6 +307,30 @@ export default function Home() {
     [profile, mealEntries, workoutEntries, bodyLogs, date]
   );
 
+  const completeQuickStart = () => {
+    if (quickStartDone) return;
+    setQuickStartDone(true);
+    window.localStorage.setItem(QUICK_START_KEY, "true");
+    window.setTimeout(() => setActiveTab("dashboard"), 650);
+  };
+
+  const dismissInstallPrompt = () => {
+    setInstallPromptDismissed(true);
+    window.localStorage.setItem(INSTALL_PROMPT_KEY, "true");
+  };
+
+  const handleInstallPrompt = async () => {
+    trackEvent("install_prompt_click", { source: deferredInstallPrompt ? "browser_prompt" : isIos ? "ios_guide" : "guide" });
+    if (!deferredInstallPrompt) {
+      notifyAdded("共有ボタンからホーム画面に追加できます");
+      return;
+    }
+    await deferredInstallPrompt.prompt();
+    const choice = await deferredInstallPrompt.userChoice;
+    setDeferredInstallPrompt(null);
+    if (choice.outcome === "accepted") dismissInstallPrompt();
+  };
+
   const addMeal = (food: FoodPreset, timing: MealTiming, note?: string) => {
     const next: MealEntry[] = [
       ...mealEntries,
@@ -278,7 +349,9 @@ export default function Home() {
     ];
     setMealEntries(next);
     saveMealEntries(next);
+    trackEvent("quick_add_food", { source: food.id.startsWith("my-food") || food.id.startsWith("custom-food") ? "custom" : "preset" });
     notifyAdded(`${food.name}を追加しました`);
+    completeQuickStart();
   };
 
   const addTemplate = (template: MealTemplate, timing: MealTiming) => {
@@ -299,7 +372,9 @@ export default function Home() {
     const next = [...mealEntries, ...entries];
     setMealEntries(next);
     saveMealEntries(next);
+    trackEvent("quick_add_food", { source: "template", count: entries.length });
     notifyAdded(`${template.name}を追加しました`);
+    completeQuickStart();
   };
 
   const deleteMeal = (id: string) => {
@@ -318,6 +393,7 @@ export default function Home() {
     ].slice(0, 24);
     setCustomFoodPresets(next);
     saveCustomFoodPresets(next);
+    trackEvent("save_custom_food");
     notifyAdded("自分のプリセットに保存しました");
   };
 
@@ -331,6 +407,7 @@ export default function Home() {
     const next = [...workoutEntries, { ...entry, id: createId("workout"), date, createdAt: new Date().toISOString() }];
     setWorkoutEntries(next);
     saveWorkoutEntries(next);
+    trackEvent("add_workout");
     notifyAdded("筋トレを追加しました");
   };
 
@@ -359,6 +436,7 @@ export default function Home() {
     const next = [...bodyLogs.filter((log) => log.date !== date), { ...entry, id: createId("body"), date, createdAt: new Date().toISOString() }];
     setBodyLogs(next);
     saveBodyLogs(next);
+    trackEvent("save_body_log");
     notifyAdded("体重を保存しました");
   };
 
@@ -427,7 +505,9 @@ export default function Home() {
       "bodynote:mealTemplates",
       "bodynote:customFoodPresets",
       "bodynote:customWorkoutPresets",
-      "bodynote:tutorialDismissed"
+      "bodynote:tutorialDismissed",
+      QUICK_START_KEY,
+      INSTALL_PROMPT_KEY
     ].forEach((key) => window.localStorage.removeItem(key));
     window.location.reload();
   };
@@ -441,9 +521,13 @@ export default function Home() {
       <Onboarding
         onComplete={(nextProfile) => {
           window.localStorage.removeItem("bodynote:tutorialDismissed");
+          window.localStorage.removeItem(QUICK_START_KEY);
           setShowTutorial(true);
+          setQuickStartDone(false);
+          setActiveTab("quick");
           setProfile(nextProfile);
           saveProfile(nextProfile);
+          trackEvent("onboarding_complete");
         }}
       />
     );
@@ -452,7 +536,14 @@ export default function Home() {
   if (!summary || !advice || !progressInsight) return null;
 
   return (
-    <AppShell activeTab={activeTab === "settings" ? "dashboard" : activeTab} onTabChange={(tab) => setActiveTab(tab)} onSettings={() => setActiveTab("settings")}>
+    <AppShell
+      activeTab={activeTab === "settings" ? "dashboard" : activeTab}
+      onTabChange={(tab) => {
+        setActiveTab(tab);
+        trackEvent("tab_change", { tab });
+      }}
+      onSettings={() => setActiveTab("settings")}
+    >
       <ActionFeedback feedback={actionFeedback} />
       {activeTab === "settings" && (
         <SettingsScreen
@@ -475,7 +566,12 @@ export default function Home() {
           advice={advice}
           progressInsight={progressInsight}
           showTutorial={showTutorial}
+          showInstallPrompt={!isStandalone && !installPromptDismissed && (Boolean(deferredInstallPrompt) || isIos)}
+          hasNativeInstallPrompt={Boolean(deferredInstallPrompt)}
+          isIos={isIos}
           onDismissTutorial={dismissTutorial}
+          onInstall={handleInstallPrompt}
+          onDismissInstall={dismissInstallPrompt}
           onQuick={() => setActiveTab("quick")}
           onCoach={() => setActiveTab("coach")}
         />
@@ -484,6 +580,7 @@ export default function Home() {
         <QuickRecordScreen
           templates={mealTemplates}
           customFoodPresets={customFoodPresets}
+          showQuickStart={!quickStartDone}
           onAddMeal={addMeal}
           onAddTemplate={addTemplate}
           onSaveCustomFood={saveCustomFoodPreset}
@@ -802,10 +899,20 @@ function FeedbackCard({ onNotify }: { onNotify: (message: string) => void }) {
   const [category, setCategory] = useState("使いにくいところ");
   const [message, setMessage] = useState("");
   const feedbackText = `BodyNote AI feedback\n評価: ${rating}/5\nカテゴリ: ${category}\n内容: ${message || "未入力"}`;
+  const hasGoogleForm = GOOGLE_FEEDBACK_FORM_URL.trim().length > 0;
 
   const copyFeedback = async () => {
     await navigator.clipboard.writeText(feedbackText);
     onNotify("フィードバック文をコピーしました");
+  };
+
+  const openGoogleForm = () => {
+    trackEvent("feedback_open", { mode: hasGoogleForm ? "google_form" : "fallback" });
+    if (!hasGoogleForm) {
+      onNotify("GoogleフォームURL未設定です。コピーで送れます");
+      return;
+    }
+    window.open(GOOGLE_FEEDBACK_FORM_URL, "_blank", "noopener,noreferrer");
   };
 
   const mailFeedback = () => {
@@ -821,9 +928,18 @@ function FeedbackCard({ onNotify }: { onNotify: (message: string) => void }) {
           <HelpCircle className="h-5 w-5 text-apple" />
           フィードバック
         </CardTitle>
-        <p className="text-sm leading-6 text-muted">使ってみて迷ったところ、欲しい機能、続けにくい理由をそのまま残せます。</p>
+        <p className="text-sm leading-6 text-muted">友達が30秒で「ここ微妙」「これ欲しい」を送れる導線です。</p>
       </CardHeader>
       <CardContent className="space-y-3">
+        <Button className="w-full" onClick={openGoogleForm}>
+          <Send className="h-4 w-4" />
+          30秒で感想を送る
+        </Button>
+        {!hasGoogleForm && (
+          <p className="rounded-2xl bg-amberSoft p-3 text-xs font-bold leading-5 text-amber-800">
+            GoogleフォームURLはまだ未設定です。URLを入れるまでは、下のコピー/メールでフィードバックを残せます。
+          </p>
+        )}
         <div className="grid grid-cols-2 gap-3">
           <Select value={rating} onChange={(event) => setRating(event.target.value)}>
             <option value="5">5 とても良い</option>
@@ -917,6 +1033,49 @@ function TutorialCard({ onDismiss }: { onDismiss: () => void }) {
             </div>
           ))}
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function InstallPromptCard({
+  hasNativeInstallPrompt,
+  isIos,
+  onInstall,
+  onDismiss
+}: {
+  hasNativeInstallPrompt: boolean;
+  isIos: boolean;
+  onInstall: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <Card className="border-emerald-100 bg-emerald-50/80">
+      <CardContent className="space-y-4 p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex gap-3">
+            <div className="grid h-11 w-11 shrink-0 place-items-center rounded-3xl bg-white text-emerald-600 shadow-sm">
+              <Smartphone className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="font-black text-ink">スマホに入れて毎日開く</h2>
+              <p className="mt-1 text-sm font-semibold leading-6 text-muted">
+                {hasNativeInstallPrompt
+                  ? "ホーム画面に追加すると、アプリみたいにすぐ記録できます。"
+                  : isIos
+                    ? "Safariの共有ボタンから「ホーム画面に追加」を選ぶと、アプリのように使えます。"
+                    : "ブラウザのメニューからホーム画面に追加できます。"}
+              </p>
+            </div>
+          </div>
+          <Button variant="ghost" size="sm" onClick={onDismiss}>
+            閉じる
+          </Button>
+        </div>
+        <Button className="w-full" onClick={onInstall}>
+          <Smartphone className="h-4 w-4" />
+          {hasNativeInstallPrompt ? "ホーム画面に追加" : "追加方法を見る"}
+        </Button>
       </CardContent>
     </Card>
   );
@@ -1038,7 +1197,12 @@ function DashboardScreen({
   advice,
   progressInsight,
   showTutorial,
+  showInstallPrompt,
+  hasNativeInstallPrompt,
+  isIos,
   onDismissTutorial,
+  onInstall,
+  onDismissInstall,
   onQuick,
   onCoach
 }: {
@@ -1047,13 +1211,26 @@ function DashboardScreen({
   advice: NonNullable<ReturnType<typeof generateCoachAdvice>>;
   progressInsight: ProgressInsight;
   showTutorial: boolean;
+  showInstallPrompt: boolean;
+  hasNativeInstallPrompt: boolean;
+  isIos: boolean;
   onDismissTutorial: () => void;
+  onInstall: () => void;
+  onDismissInstall: () => void;
   onQuick: () => void;
   onCoach: () => void;
 }) {
   return (
     <div className="space-y-4">
       {showTutorial && <TutorialCard onDismiss={onDismissTutorial} />}
+      {showInstallPrompt && (
+        <InstallPromptCard
+          hasNativeInstallPrompt={hasNativeInstallPrompt}
+          isIos={isIos}
+          onInstall={onInstall}
+          onDismiss={onDismissInstall}
+        />
+      )}
       <Card className="overflow-hidden">
         <CardContent className="space-y-5 p-5">
           <div className="flex items-center justify-between gap-4">
@@ -1076,7 +1253,7 @@ function DashboardScreen({
 
       <ChangeSnapshotCard profile={profile} insight={progressInsight} compact />
 
-      <ShareResultCard profile={profile} summary={summary} advice={advice} />
+      <ShareResultCard profile={profile} summary={summary} advice={advice} progressInsight={progressInsight} />
 
       <Card>
         <CardHeader>
@@ -1130,6 +1307,7 @@ function DashboardScreen({
 function QuickRecordScreen({
   templates,
   customFoodPresets,
+  showQuickStart,
   onAddMeal,
   onAddTemplate,
   onSaveCustomFood,
@@ -1137,6 +1315,7 @@ function QuickRecordScreen({
 }: {
   templates: MealTemplate[];
   customFoodPresets: FoodPreset[];
+  showQuickStart: boolean;
   onAddMeal: (food: FoodPreset, timing: MealTiming, note?: string) => void;
   onAddTemplate: (template: MealTemplate, timing: MealTiming) => void;
   onSaveCustomFood: (food: Omit<FoodPreset, "id"> & { id?: string }) => void;
@@ -1163,6 +1342,7 @@ function QuickRecordScreen({
 
   return (
     <div className="space-y-4">
+      {showQuickStart && <QuickStartCard />}
       <Card>
         <CardHeader>
           <CardTitle>1分クイック記録</CardTitle>
@@ -1298,6 +1478,27 @@ function QuickRecordScreen({
       </Card>
 
     </div>
+  );
+}
+
+function QuickStartCard() {
+  return (
+    <Card className="border-blue-100 bg-blue-50/80">
+      <CardContent className="space-y-3 p-5">
+        <div className="flex items-start gap-3">
+          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-3xl bg-white text-apple shadow-sm">
+            <Plus className="h-5 w-5" />
+          </div>
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-apple">First Mission</p>
+            <h2 className="mt-1 text-xl font-black tracking-normal text-ink">まず1品だけ追加</h2>
+            <p className="mt-2 text-sm font-semibold leading-6 text-muted">
+              鶏むね肉、白米、プロテインなどを1つタップすると、今日のスコアと次の行動が見えるようになります。
+            </p>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1872,17 +2073,158 @@ function DashboardMetric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ShareResultCard({
+function drawRoundRect(context: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) {
+  context.beginPath();
+  context.roundRect(x, y, width, height, radius);
+  context.fill();
+}
+
+function drawText(context: CanvasRenderingContext2D, text: string, x: number, y: number, maxWidth: number, lineHeight: number) {
+  const chars = [...text];
+  let line = "";
+  for (const char of chars) {
+    const testLine = `${line}${char}`;
+    if (context.measureText(testLine).width > maxWidth && line) {
+      context.fillText(line, x, y);
+      line = char;
+      y += lineHeight;
+    } else {
+      line = testLine;
+    }
+  }
+  context.fillText(line, x, y);
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement) {
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("画像を作成できませんでした"))), "image/png", 0.95);
+  });
+}
+
+async function createShareImageBlob({
   profile,
   summary,
-  advice
+  advice,
+  progressInsight
 }: {
   profile: UserProfile;
   summary: DailySummaryLike;
   advice: ReturnType<typeof generateCoachAdvice>;
+  progressInsight: ProgressInsight;
+}) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1080;
+  canvas.height = 1350;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Canvasを使えません");
+
+  context.fillStyle = "#f7f8fb";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = "#111827";
+  drawRoundRect(context, 72, 72, 936, 1206, 54);
+
+  context.fillStyle = "#ffffff";
+  context.font = "800 34px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+  context.fillText("BodyNote AI", 126, 148);
+  context.fillStyle = "#94a3b8";
+  context.font = "700 24px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+  context.fillText(todayKey().replaceAll("-", "/"), 126, 190);
+
+  context.fillStyle = "#ffffff";
+  context.font = "900 76px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+  drawText(context, advice.scoreLabel, 126, 300, 560, 86);
+
+  context.fillStyle = "#ffffff";
+  context.beginPath();
+  context.arc(810, 262, 106, 0, Math.PI * 2);
+  context.fill();
+  context.fillStyle = "#111827";
+  context.font = "900 78px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+  context.textAlign = "center";
+  context.fillText(String(summary.score), 810, 286);
+  context.font = "800 24px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+  context.fillText("Score", 810, 326);
+  context.textAlign = "left";
+
+  const metricCards = [
+    { label: "体重変化", value: progressInsight.weightChange === undefined ? "-" : formatSigned(progressInsight.weightChange, "kg"), sub: `${progressInsight.targetProgress}%` },
+    { label: "連続記録", value: `${progressInsight.streakDays}日`, sub: `${progressInsight.weeklyRecordedDays}/7日` },
+    { label: "Protein", value: `${round(summary.protein)}g`, sub: `/ ${profile.targetProtein}g` },
+    { label: "Workout", value: `${summary.workoutSets}`, sub: "sets" }
+  ];
+
+  metricCards.forEach((metric, index) => {
+    const x = 126 + (index % 2) * 420;
+    const y = 460 + Math.floor(index / 2) * 210;
+    context.fillStyle = "#243041";
+    drawRoundRect(context, x, y, 372, 158, 38);
+    context.fillStyle = "#94a3b8";
+    context.font = "800 24px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+    context.fillText(metric.label, x + 36, y + 48);
+    context.fillStyle = "#ffffff";
+    context.font = "900 54px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+    context.fillText(metric.value, x + 36, y + 108);
+    context.fillStyle = "#94a3b8";
+    context.font = "800 22px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+    context.fillText(metric.sub, x + 190, y + 108);
+  });
+
+  context.fillStyle = "#ffffff";
+  drawRoundRect(context, 126, 940, 828, 170, 42);
+  context.fillStyle = "#64748b";
+  context.font = "900 24px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+  context.fillText("明日の一手", 166, 998);
+  context.fillStyle = "#111827";
+  context.font = "900 34px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+  drawText(context, advice.todos[0] ?? "まず1つ記録してみよう", 166, 1056, 748, 44);
+
+  context.fillStyle = "#94a3b8";
+  context.font = "800 24px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+  context.fillText("body-note-ai.vercel.app", 126, 1206);
+
+  return canvasToBlob(canvas);
+}
+
+function ShareResultCard({
+  profile,
+  summary,
+  advice,
+  progressInsight
+}: {
+  profile: UserProfile;
+  summary: DailySummaryLike;
+  advice: ReturnType<typeof generateCoachAdvice>;
+  progressInsight: ProgressInsight;
 }) {
   const calorieRate = Math.min(120, Math.round((summary.calories / Math.max(profile.targetCalories, 1)) * 100));
   const proteinRate = Math.min(120, Math.round((summary.protein / Math.max(profile.targetProtein, 1)) * 100));
+  const [isCreating, setIsCreating] = useState(false);
+
+  const saveShareImage = async (mode: "download" | "share") => {
+    try {
+      setIsCreating(true);
+      const blob = await createShareImageBlob({ profile, summary, advice, progressInsight });
+      const file = new File([blob], `bodynote-${summary.date}.png`, { type: "image/png" });
+      const canShareFile = mode === "share" && navigator.canShare?.({ files: [file] });
+      if (canShareFile) {
+        await navigator.share({
+          title: "BodyNote AI",
+          text: "今日のボディメイク記録",
+          files: [file]
+        });
+      } else {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = file.name;
+        link.click();
+        URL.revokeObjectURL(url);
+      }
+      trackEvent("share_image_download", { mode });
+    } finally {
+      setIsCreating(false);
+    }
+  };
 
   return (
     <Card className="overflow-hidden border-gray-900 bg-ink text-white">
@@ -1916,6 +2258,16 @@ function ShareResultCard({
         <div className="rounded-3xl bg-white p-4 text-ink">
           <p className="text-xs font-black text-muted">明日の一手</p>
           <p className="mt-1 text-sm font-black leading-6">{advice.todos[0]}</p>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Button variant="secondary" onClick={() => void saveShareImage("download")} disabled={isCreating}>
+            <Download className="h-4 w-4" />
+            画像保存
+          </Button>
+          <Button onClick={() => void saveShareImage("share")} disabled={isCreating}>
+            <Share2 className="h-4 w-4" />
+            共有
+          </Button>
         </div>
       </CardContent>
     </Card>
