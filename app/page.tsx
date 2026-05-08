@@ -22,6 +22,8 @@ import {
   Sparkles,
   Star,
   Trash2,
+  TrendingDown,
+  TrendingUp,
   Utensils
 } from "lucide-react";
 import { AppShell, type TabKey } from "@/components/AppShell";
@@ -48,7 +50,7 @@ import {
   saveWorkoutEntries
 } from "@/lib/storage";
 import type { BodyLog, FoodPreset, GoalType, MealEntry, MealTemplate, MealTiming, UserProfile, WorkoutEntry } from "@/lib/types";
-import { cn, createId, formatSigned, round, todayKey } from "@/lib/utils";
+import { clamp, cn, createId, formatSigned, round, todayKey } from "@/lib/utils";
 
 const defaultProfile: UserProfile = {
   goal: "cut",
@@ -68,6 +70,96 @@ const defaultProfile: UserProfile = {
 
 const mealTimingOptions = Object.entries(mealTimingLabels) as [MealTiming, string][];
 type AppView = TabKey | "settings";
+type ProgressInsight = {
+  latestWeight?: number;
+  startWeight: number;
+  weightChange?: number;
+  targetProgress: number;
+  remainingToGoal?: number;
+  bodyFatChange?: number;
+  streakDays: number;
+  weeklyRecordedDays: number;
+  weeklyAverageScore: number;
+  weeklyProteinHitDays: number;
+  weeklyWorkoutDays: number;
+  weeklyWorkoutSets: number;
+  weeklyScoreDelta?: number;
+};
+
+function dateFromKey(key: string) {
+  const [year, month, day] = key.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function buildProgressInsight(
+  profile: UserProfile,
+  mealEntries: MealEntry[],
+  workoutEntries: WorkoutEntry[],
+  bodyLogs: BodyLog[],
+  date = todayKey()
+): ProgressInsight {
+  const sortedLogs = [...bodyLogs].sort((a, b) => a.date.localeCompare(b.date));
+  const firstLog = sortedLogs[0];
+  const latestLog = sortedLogs.at(-1);
+  const startWeight = firstLog?.weight ?? profile.currentWeight;
+  const latestWeight = latestLog?.weight;
+  const weightChange = latestWeight === undefined ? undefined : round(latestWeight - startWeight, 1);
+  const totalGoalChange = profile.targetWeight - startWeight;
+  const targetProgress =
+    latestWeight === undefined || totalGoalChange === 0
+      ? 0
+      : clamp(Math.round(((latestWeight - startWeight) / totalGoalChange) * 100), 0, 100);
+  const bodyFatStart = sortedLogs.find((log) => log.bodyFat !== undefined)?.bodyFat;
+  const bodyFatLatest = [...sortedLogs].reverse().find((log) => log.bodyFat !== undefined)?.bodyFat;
+  const recordedDates = new Set([
+    ...mealEntries.map((meal) => meal.date),
+    ...workoutEntries.map((workout) => workout.date),
+    ...bodyLogs.map((log) => log.date)
+  ]);
+  const today = dateFromKey(date);
+  let streakDays = 0;
+  for (let index = 0; index < 365; index += 1) {
+    if (!recordedDates.has(todayKey(addDays(today, -index)))) break;
+    streakDays += 1;
+  }
+
+  const currentWeek = Array.from({ length: 7 }, (_, index) => todayKey(addDays(today, -index))).map((day) =>
+    buildDailySummary(profile, mealEntries, workoutEntries, bodyLogs, day)
+  );
+  const previousWeek = Array.from({ length: 7 }, (_, index) => todayKey(addDays(today, -7 - index))).map((day) =>
+    buildDailySummary(profile, mealEntries, workoutEntries, bodyLogs, day)
+  );
+  const recordedCurrentWeek = currentWeek.filter((day) => recordedDates.has(day.date));
+  const recordedPreviousWeek = previousWeek.filter((day) => recordedDates.has(day.date));
+  const weeklyAverageScore = recordedCurrentWeek.length
+    ? Math.round(recordedCurrentWeek.reduce((sum, day) => sum + day.score, 0) / recordedCurrentWeek.length)
+    : 0;
+  const previousAverageScore = recordedPreviousWeek.length
+    ? Math.round(recordedPreviousWeek.reduce((sum, day) => sum + day.score, 0) / recordedPreviousWeek.length)
+    : undefined;
+
+  return {
+    latestWeight,
+    startWeight,
+    weightChange,
+    targetProgress,
+    remainingToGoal: latestWeight === undefined ? undefined : round(latestWeight - profile.targetWeight, 1),
+    bodyFatChange: bodyFatStart !== undefined && bodyFatLatest !== undefined ? round(bodyFatLatest - bodyFatStart, 1) : undefined,
+    streakDays,
+    weeklyRecordedDays: recordedCurrentWeek.length,
+    weeklyAverageScore,
+    weeklyProteinHitDays: recordedCurrentWeek.filter((day) => day.protein >= profile.targetProtein * 0.9).length,
+    weeklyWorkoutDays: recordedCurrentWeek.filter((day) => day.trainedToday).length,
+    weeklyWorkoutSets: recordedCurrentWeek.reduce((sum, day) => sum + day.workoutSets, 0),
+    weeklyScoreDelta: previousAverageScore === undefined ? undefined : weeklyAverageScore - previousAverageScore
+  };
+}
 
 function normalizeProfile(profile?: UserProfile): UserProfile | undefined {
   if (!profile) return undefined;
@@ -163,6 +255,10 @@ export default function Home() {
   );
 
   const advice = useMemo(() => (profile && summary ? generateCoachAdvice(profile, summary) : undefined), [profile, summary]);
+  const progressInsight = useMemo(
+    () => (profile ? buildProgressInsight(profile, mealEntries, workoutEntries, bodyLogs, date) : undefined),
+    [profile, mealEntries, workoutEntries, bodyLogs, date]
+  );
 
   const addMeal = (food: FoodPreset, timing: MealTiming, note?: string) => {
     const next: MealEntry[] = [
@@ -353,7 +449,7 @@ export default function Home() {
     );
   }
 
-  if (!summary || !advice) return null;
+  if (!summary || !advice || !progressInsight) return null;
 
   return (
     <AppShell activeTab={activeTab === "settings" ? "dashboard" : activeTab} onTabChange={(tab) => setActiveTab(tab)} onSettings={() => setActiveTab("settings")}>
@@ -377,6 +473,7 @@ export default function Home() {
           profile={profile}
           summary={summary}
           advice={advice}
+          progressInsight={progressInsight}
           showTutorial={showTutorial}
           onDismissTutorial={dismissTutorial}
           onQuick={() => setActiveTab("quick")}
@@ -422,6 +519,7 @@ export default function Home() {
           mealEntries={mealEntries}
           workoutEntries={workoutEntries}
           bodyLogs={bodyLogs}
+          progressInsight={progressInsight}
           onAddBodyLog={addBodyLog}
         />
       )}
@@ -838,10 +936,107 @@ function ActionFeedback({ feedback }: { feedback?: { id: number; message: string
   );
 }
 
+function ChangeSnapshotCard({ profile, insight, compact = false }: { profile: UserProfile; insight: ProgressInsight; compact?: boolean }) {
+  const goalDirection = profile.goal === "bulk" ? "増量" : profile.goal === "maintain" ? "維持" : "減量";
+  const progressLabel = insight.latestWeight
+    ? `${goalDirection}の目標まで ${Math.abs(insight.remainingToGoal ?? 0)}kg`
+    : "体重を記録すると目標までの距離が出ます";
+  const weightTone = insight.weightChange === undefined ? "text-muted" : insight.weightChange <= 0 ? "text-mint" : "text-apple";
+  const scoreDeltaLabel =
+    insight.weeklyScoreDelta === undefined ? "先週比較は記録待ち" : `${insight.weeklyScoreDelta >= 0 ? "+" : ""}${insight.weeklyScoreDelta}pt`;
+
+  return (
+    <Card className={cn("overflow-hidden", compact ? "bg-white" : "bg-ink text-white")}>
+      <CardContent className="space-y-5 p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className={cn("text-xs font-black uppercase tracking-[0.18em]", compact ? "text-muted" : "text-white/55")}>Body Change</p>
+            <h2 className={cn("mt-1 text-2xl font-black tracking-normal", compact ? "text-ink" : "text-white")}>変化が見えるカード</h2>
+            <p className={cn("mt-2 text-sm font-bold leading-6", compact ? "text-muted" : "text-white/70")}>{progressLabel}</p>
+          </div>
+          <div className={cn("grid h-16 w-16 shrink-0 place-items-center rounded-full text-lg font-black", compact ? "bg-gray-100 text-ink" : "bg-white text-ink")}>
+            {insight.targetProgress}%
+          </div>
+        </div>
+
+        <div className="h-3 rounded-full bg-gray-100/70">
+          <div className="h-full rounded-full bg-mint transition-all" style={{ width: `${insight.targetProgress}%` }} />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <ChangeMetric
+            icon={insight.weightChange !== undefined && insight.weightChange <= 0 ? TrendingDown : TrendingUp}
+            label="開始から"
+            value={insight.weightChange === undefined ? "-" : formatSigned(insight.weightChange, "kg")}
+            sub={insight.latestWeight ? `${insight.startWeight}kg → ${insight.latestWeight}kg` : "体重待ち"}
+            className={weightTone}
+            dark={!compact}
+          />
+          <ChangeMetric
+            icon={CalendarDays}
+            label="連続記録"
+            value={`${insight.streakDays}日`}
+            sub={`${insight.weeklyRecordedDays}/7日 記録`}
+            dark={!compact}
+          />
+          <ChangeMetric
+            icon={Apple}
+            label="タンパク質"
+            value={`${insight.weeklyProteinHitDays}日`}
+            sub="今週の達成日"
+            dark={!compact}
+          />
+          <ChangeMetric
+            icon={Dumbbell}
+            label="筋トレ"
+            value={`${insight.weeklyWorkoutDays}日`}
+            sub={`${insight.weeklyWorkoutSets}セット`}
+            dark={!compact}
+          />
+        </div>
+
+        {!compact && (
+          <div className="rounded-3xl bg-white p-4 text-ink">
+            <p className="text-xs font-black text-muted">先週とのスコア差</p>
+            <p className="mt-1 text-2xl font-black">{scoreDeltaLabel}</p>
+            <p className="mt-1 text-sm font-bold leading-6 text-muted">体重だけじゃなく、記録・食事・筋トレの積み上げも変化として見ます。</p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ChangeMetric({
+  icon: Icon,
+  label,
+  value,
+  sub,
+  className,
+  dark = false
+}: {
+  icon: React.ElementType;
+  label: string;
+  value: string;
+  sub: string;
+  className?: string;
+  dark?: boolean;
+}) {
+  return (
+    <div className={cn("rounded-3xl p-4", dark ? "bg-white/10" : "bg-gray-50")}>
+      <Icon className={cn("h-4 w-4", dark ? "text-mint" : "text-apple")} />
+      <p className={cn("mt-3 text-[11px] font-black", dark ? "text-white/55" : "text-muted")}>{label}</p>
+      <p className={cn("mt-1 text-2xl font-black", dark ? "text-white" : "text-ink", className)}>{value}</p>
+      <p className={cn("mt-1 text-xs font-bold", dark ? "text-white/55" : "text-muted")}>{sub}</p>
+    </div>
+  );
+}
+
 function DashboardScreen({
   profile,
   summary,
   advice,
+  progressInsight,
   showTutorial,
   onDismissTutorial,
   onQuick,
@@ -850,6 +1045,7 @@ function DashboardScreen({
   profile: UserProfile;
   summary: NonNullable<ReturnType<typeof buildDailySummary>>;
   advice: NonNullable<ReturnType<typeof generateCoachAdvice>>;
+  progressInsight: ProgressInsight;
   showTutorial: boolean;
   onDismissTutorial: () => void;
   onQuick: () => void;
@@ -877,6 +1073,8 @@ function DashboardScreen({
           </div>
         </CardContent>
       </Card>
+
+      <ChangeSnapshotCard profile={profile} insight={progressInsight} compact />
 
       <ShareResultCard profile={profile} summary={summary} advice={advice} />
 
@@ -1362,12 +1560,14 @@ function ProgressScreen({
   mealEntries,
   workoutEntries,
   bodyLogs,
+  progressInsight,
   onAddBodyLog
 }: {
   profile: UserProfile;
   mealEntries: MealEntry[];
   workoutEntries: WorkoutEntry[];
   bodyLogs: BodyLog[];
+  progressInsight: ProgressInsight;
   onAddBodyLog: (entry: Omit<BodyLog, "id" | "date" | "createdAt">) => void;
 }) {
   const sortedLogs = [...bodyLogs].sort((a, b) => a.date.localeCompare(b.date));
@@ -1395,6 +1595,8 @@ function ProgressScreen({
 
   return (
     <div className="space-y-4">
+      <ChangeSnapshotCard profile={profile} insight={progressInsight} />
+
       <Card>
         <CardHeader>
           <CardTitle>7日平均で見る</CardTitle>
@@ -1406,7 +1608,7 @@ function ProgressScreen({
             <MiniStat icon={CalendarDays} label="7日平均" value={sevenAverage ? `${sevenAverage}` : "-"} sub="kg" tone="blue" />
             <MiniStat icon={HeartPulse} label="目標差" value={latest ? formatSigned(latest.weight - profile.targetWeight) : "-"} sub="kg" tone="mint" />
           </div>
-          <ProgressChart logs={sortedLogs} />
+          <ProgressChart logs={sortedLogs} targetWeight={profile.targetWeight} />
         </CardContent>
       </Card>
 
@@ -1436,6 +1638,22 @@ function ProgressScreen({
           <p className="rounded-3xl bg-white p-4 text-sm font-bold leading-6 text-ink">
             平均タンパク質は{weeklyAverageProtein}g。まずは記録日を増やすほど、次の改善点が見えやすくなります。
           </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>変化メモ</CardTitle>
+          <p className="text-sm leading-6 text-muted">数字が少なくても、続けた証拠を拾います。</p>
+        </CardHeader>
+        <CardContent className="grid grid-cols-2 gap-3">
+          <DashboardMetric label="目標進捗" value={`${progressInsight.targetProgress}%`} />
+          <DashboardMetric label="残り" value={progressInsight.remainingToGoal === undefined ? "記録待ち" : `${Math.abs(progressInsight.remainingToGoal)}kg`} />
+          <DashboardMetric label="体脂肪の変化" value={progressInsight.bodyFatChange === undefined ? "記録待ち" : formatSigned(progressInsight.bodyFatChange, "%")} />
+          <DashboardMetric
+            label="先週比Score"
+            value={progressInsight.weeklyScoreDelta === undefined ? "記録待ち" : `${progressInsight.weeklyScoreDelta >= 0 ? "+" : ""}${progressInsight.weeklyScoreDelta}pt`}
+          />
         </CardContent>
       </Card>
 
