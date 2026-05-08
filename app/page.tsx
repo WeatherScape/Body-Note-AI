@@ -303,6 +303,13 @@ export default function Home() {
     window.localStorage.setItem("bodynote:tutorialDismissed", "true");
   };
 
+  const showTutorialAgain = () => {
+    window.localStorage.removeItem("bodynote:tutorialDismissed");
+    setShowTutorial(true);
+    setActiveTab("dashboard");
+    notifyAdded("使い方を表示しました");
+  };
+
   const exportData = () => ({
     profile,
     mealEntries,
@@ -337,6 +344,8 @@ export default function Home() {
     return (
       <Onboarding
         onComplete={(nextProfile) => {
+          window.localStorage.removeItem("bodynote:tutorialDismissed");
+          setShowTutorial(true);
           setProfile(nextProfile);
           saveProfile(nextProfile);
         }}
@@ -355,6 +364,7 @@ export default function Home() {
           exportData={exportData}
           resetAllData={resetAllData}
           onNotify={notifyAdded}
+          onShowTutorial={showTutorialAgain}
           onSave={(nextProfile) => {
             setProfile(nextProfile);
             saveProfile(nextProfile);
@@ -474,6 +484,8 @@ function Onboarding({
           記録データはこの端末のブラウザに保存されます。外部AI APIやサーバー送信は使っていません。
         </p>
       </div>
+
+      {!embedded && <OnboardingGuide />}
 
       <Card className="space-y-5 p-5">
         <Labeled label="目的">
@@ -615,17 +627,49 @@ function Onboarding({
   );
 }
 
+function OnboardingGuide() {
+  const steps = [
+    { title: "体情報を入れる", body: "身長・年齢・体重・運動頻度から、目標カロリーとタンパク質を自動で出します。" },
+    { title: "食べたら1タップ", body: "よく食べるものは自分のプリセットに保存して、次回からすぐ追加できます。" },
+    { title: "今日の判断を見る", body: "スコア、足りない栄養、明日の一手をアプリがやさしく整理します。" }
+  ];
+
+  return (
+    <Card className="mb-5 border-blue-100 bg-blue-50/80">
+      <CardContent className="space-y-3 p-5">
+        <div className="flex items-center gap-2">
+          <HelpCircle className="h-5 w-5 text-apple" />
+          <h2 className="font-black text-ink">最初はこの3つだけ</h2>
+        </div>
+        <div className="grid gap-2">
+          {steps.map((step, index) => (
+            <div key={step.title} className="rounded-3xl bg-white p-4 shadow-sm">
+              <div className="flex items-center gap-3">
+                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-ink text-xs font-black text-white">{index + 1}</span>
+                <p className="font-black text-ink">{step.title}</p>
+              </div>
+              <p className="mt-2 text-sm leading-6 text-muted">{step.body}</p>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function SettingsScreen({
   profile,
   exportData,
   resetAllData,
   onNotify,
+  onShowTutorial,
   onSave
 }: {
   profile: UserProfile;
   exportData: () => unknown;
   resetAllData: () => void;
   onNotify: (message: string) => void;
+  onShowTutorial: () => void;
   onSave: (profile: UserProfile) => void;
 }) {
   return (
@@ -637,6 +681,18 @@ function SettingsScreen({
         </p>
       </div>
       <Onboarding initialProfile={profile} embedded submitLabel="設定を保存" onComplete={onSave} />
+      <Card>
+        <CardContent className="flex items-center justify-between gap-3 p-5">
+          <div>
+            <h3 className="font-black text-ink">使い方を確認</h3>
+            <p className="mt-1 text-sm leading-6 text-muted">初めて触る人向けの3ステップをもう一度表示します。</p>
+          </div>
+          <Button variant="secondary" size="sm" onClick={onShowTutorial}>
+            <HelpCircle className="h-4 w-4" />
+            表示
+          </Button>
+        </CardContent>
+      </Card>
       <FeedbackCard onNotify={onNotify} />
       <DataToolsCard exportData={exportData} resetAllData={resetAllData} onNotify={onNotify} />
     </div>
