@@ -67,3 +67,67 @@ button {
     transform: translateY(8px) scale(0.98);
   }
 }
+
+@keyframes bodyTwinBreathe {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-5px) scale(1.018);
+  }
+}
+
+@keyframes bodyTwinAura {
+  0%,
+  100% {
+    transform: scale(0.96);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scale(1.06);
+    opacity: 0.85;
+  }
+}
+
+@keyframes bodyTwinPulse {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 0 rgba(59, 130, 246, 0));
+  }
+  50% {
+    filter: drop-shadow(0 0 18px rgba(59, 130, 246, 0.34));
+  }
+}
+
+@keyframes bodyTwinFloat {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+    opacity: 0.5;
+  }
+  50% {
+    transform: translateY(-10px) rotate(8deg);
+    opacity: 1;
+  }
+}
+
+.body-twin-breathe {
+  animation: bodyTwinBreathe 4.8s ease-in-out infinite;
+}
+
+.body-twin-aura {
+  animation: bodyTwinAura 5.5s ease-in-out infinite;
+}
+
+.body-twin-pulse {
+  animation: bodyTwinBreathe 4.8s ease-in-out infinite, bodyTwinPulse 2.8s ease-in-out infinite;
+}
+
+.body-twin-float {
+  animation: bodyTwinFloat 4s ease-in-out infinite;
+}
+
+.body-twin-float-delayed {
+  animation: bodyTwinFloat 4.6s ease-in-out 0.8s infinite;
+}

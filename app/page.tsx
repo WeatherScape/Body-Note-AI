@@ -30,6 +30,7 @@ import {
   Utensils
 } from "lucide-react";
 import { AppShell, type TabKey } from "@/components/AppShell";
+import { BodyTwinCard } from "@/components/body-twin/BodyTwinCard";
 import { CoachCard } from "@/components/CoachCard";
 import { FoodPresetButton } from "@/components/FoodPresetButton";
 import { MacroBar } from "@/components/MacroBar";
@@ -39,6 +40,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { generateCoachAdvice } from "@/lib/coach";
+import { calculateBodyTwinState } from "@/lib/bodyTwin/calculateBodyTwinState";
 import { activityLevelLabels, calculateNutritionTargets } from "@/lib/nutrition";
 import { foodPresets, initialMealTemplates, mealTimingLabels, workoutPresets } from "@/lib/presets";
 import { buildDailySummary } from "@/lib/summary";
@@ -53,6 +55,7 @@ import {
   saveWorkoutEntries
 } from "@/lib/storage";
 import type { BodyLog, FoodPreset, GoalType, MealEntry, MealTemplate, MealTiming, UserProfile, WorkoutEntry } from "@/lib/types";
+import type { BodyTwinState, DailyBodyLog } from "@/types/bodyTwin";
 import { clamp, cn, createId, formatSigned, round, todayKey } from "@/lib/utils";
 
 const defaultProfile: UserProfile = {
@@ -187,6 +190,47 @@ function buildProgressInsight(
   };
 }
 
+function buildBodyTwinLogs(
+  profile: UserProfile,
+  mealEntries: MealEntry[],
+  workoutEntries: WorkoutEntry[],
+  bodyLogs: BodyLog[],
+  date = todayKey()
+): DailyBodyLog[] {
+  const today = dateFromKey(date);
+  const recordedDates = new Set([
+    ...mealEntries.map((meal) => meal.date),
+    ...workoutEntries.map((workout) => workout.date),
+    ...bodyLogs.map((log) => log.date)
+  ]);
+
+  let currentStreak = 0;
+  for (let index = 0; index < 365; index += 1) {
+    if (!recordedDates.has(todayKey(addDays(today, -index)))) break;
+    currentStreak += 1;
+  }
+
+  return Array.from({ length: 7 }, (_, index) => {
+    const day = todayKey(addDays(today, -index));
+    const summary = buildDailySummary(profile, mealEntries, workoutEntries, bodyLogs, day);
+    const dayStreak = index === 0 ? currentStreak : Math.max(0, currentStreak - index);
+
+    return {
+      date: day,
+      intakeCalories: summary.calories,
+      burnedCalories: profile.estimatedMaintenanceCalories,
+      targetCalories: profile.targetCalories,
+      protein: summary.protein,
+      proteinTarget: profile.targetProtein,
+      workoutDone: summary.trainedToday,
+      weight: summary.bodyWeight,
+      bodyFat: summary.bodyFat,
+      streakDays: dayStreak,
+      mode: profile.goal
+    };
+  });
+}
+
 function normalizeProfile(profile?: UserProfile): UserProfile | undefined {
   if (!profile) return undefined;
   const merged = { ...defaultProfile, ...profile };
@@ -306,6 +350,10 @@ export default function Home() {
     () => (profile ? buildProgressInsight(profile, mealEntries, workoutEntries, bodyLogs, date) : undefined),
     [profile, mealEntries, workoutEntries, bodyLogs, date]
   );
+  const bodyTwinState = useMemo(
+    () => (profile ? calculateBodyTwinState(buildBodyTwinLogs(profile, mealEntries, workoutEntries, bodyLogs, date)) : undefined),
+    [profile, mealEntries, workoutEntries, bodyLogs, date]
+  );
 
   const completeQuickStart = () => {
     if (quickStartDone) return;
@@ -350,7 +398,7 @@ export default function Home() {
     setMealEntries(next);
     saveMealEntries(next);
     trackEvent("quick_add_food", { source: food.id.startsWith("my-food") || food.id.startsWith("custom-food") ? "custom" : "preset" });
-    notifyAdded(`${food.name}を追加しました`);
+    notifyAdded(`${food.name}を追加。Body Twinが更新されました`);
     completeQuickStart();
   };
 
@@ -373,7 +421,7 @@ export default function Home() {
     setMealEntries(next);
     saveMealEntries(next);
     trackEvent("quick_add_food", { source: "template", count: entries.length });
-    notifyAdded(`${template.name}を追加しました`);
+    notifyAdded(`${template.name}を追加。Body Twinが更新されました`);
     completeQuickStart();
   };
 
@@ -533,7 +581,7 @@ export default function Home() {
     );
   }
 
-  if (!summary || !advice || !progressInsight) return null;
+  if (!summary || !advice || !progressInsight || !bodyTwinState) return null;
 
   return (
     <AppShell
@@ -565,6 +613,7 @@ export default function Home() {
           summary={summary}
           advice={advice}
           progressInsight={progressInsight}
+          bodyTwinState={bodyTwinState}
           showTutorial={showTutorial}
           showInstallPrompt={!isStandalone && !installPromptDismissed && (Boolean(deferredInstallPrompt) || isIos)}
           hasNativeInstallPrompt={Boolean(deferredInstallPrompt)}
@@ -1196,6 +1245,7 @@ function DashboardScreen({
   summary,
   advice,
   progressInsight,
+  bodyTwinState,
   showTutorial,
   showInstallPrompt,
   hasNativeInstallPrompt,
@@ -1210,6 +1260,7 @@ function DashboardScreen({
   summary: NonNullable<ReturnType<typeof buildDailySummary>>;
   advice: NonNullable<ReturnType<typeof generateCoachAdvice>>;
   progressInsight: ProgressInsight;
+  bodyTwinState: BodyTwinState;
   showTutorial: boolean;
   showInstallPrompt: boolean;
   hasNativeInstallPrompt: boolean;
@@ -1231,6 +1282,17 @@ function DashboardScreen({
           onDismiss={onDismissInstall}
         />
       )}
+      <BodyTwinCard
+        state={bodyTwinState}
+        onShare={() => {
+          const text = `BodyNote AI 今日のBody Twin\n${bodyTwinState.label}: ${bodyTwinState.message}\nhttps://body-note-ai.vercel.app`;
+          if (navigator.share) {
+            void navigator.share({ title: "BodyNote AI", text, url: "https://body-note-ai.vercel.app" });
+            return;
+          }
+          void navigator.clipboard.writeText(text);
+        }}
+      />
       <Card className="overflow-hidden">
         <CardContent className="space-y-5 p-5">
           <div className="flex items-center justify-between gap-4">
@@ -2024,13 +2086,30 @@ function Labeled({ label, children }: { label: string; children: React.ReactNode
 }
 
 function NumberInput({ value, unit, onChange }: { value: number; unit: string; onChange: (value: number) => void }) {
+  const [draft, setDraft] = useState(Number.isNaN(value) ? "" : String(value));
+
+  useEffect(() => {
+    setDraft(Number.isNaN(value) ? "" : String(value));
+  }, [value]);
+
   return (
     <div className="relative">
       <Input
         type="number"
         inputMode="decimal"
-        value={Number.isNaN(value) ? "" : value}
-        onChange={(event) => onChange(Number(event.target.value))}
+        value={draft}
+        onChange={(event) => {
+          const next = event.target.value;
+          setDraft(next);
+          if (next === "") return;
+          const parsed = Number(next);
+          if (!Number.isNaN(parsed)) onChange(parsed);
+        }}
+        onBlur={() => {
+          if (draft === "") return;
+          const parsed = Number(draft);
+          if (Number.isNaN(parsed)) setDraft(Number.isNaN(value) ? "" : String(value));
+        }}
         className="pr-14"
       />
       <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-xs font-black text-muted">{unit}</span>
