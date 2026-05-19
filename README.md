@@ -16,7 +16,8 @@ PowerShell の実行ポリシーで `npm` が止まる環境では、`npm.cmd` �
 ## 主な機能
 
 - 初回オンボーディングで目的、体重、身長、年齢、性別、運動頻度、管理スタイルを入力し、推定消費カロリー・目標カロリー・目標タンパク質を自動計算
-- 毎日の習慣がアバターに反映される「ボディツイン / Body Twin」をダッシュボード最上部に表示
+- 毎日の習慣がかわいい相棒に反映される「Body Buddy」をダッシュボード最上部に表示
+- 「相棒をつくる」Creatorで、ベースタイプ・耳・毛色・表情・首輪・チャームカラー・名前をカスタマイズ
 - Fat Burn、Muscle、Recovery、Consistency の4ゲージと7日間の傾向で、数字だけではない変化を可視化
 - 今日のボディメイクスコア、摂取カロリー、タンパク質、PFC、筋トレ、体重をまとめたダッシュボード
 - 鶏むね肉、白米、卵、プロテインなどのワンタップ食品追加
@@ -52,5 +53,6 @@ PowerShell の実行ポリシーで `npm` が止まる環境では、`npm.cmd` �
 - コーチ文は `lib/coach.ts` の純粋関数で生成しています。現在は外部AI APIを使っていないため、利用ごとのAPIコストは発生しません。将来OpenAI APIに置き換える場合も、画面側のデータ構造を大きく変えずに差し替えられます。
 - スコア計算は `lib/summary.ts` に分離しています。初心者でも継続しやすいよう、記録が少なくても厳しすぎない配点にしています。
 - 目標カロリーとタンパク質の初期値は `lib/nutrition.ts` で計算しています。医療・栄養指導ではなく、個人開発MVPとしての目安です。
-- Body Twin の状態計算は `lib/bodyTwin/calculateBodyTwinState.ts` に分離し、UIは `components/body-twin/` に分割しています。
+- Body Buddy の状態計算は `lib/bodyTwin/calculateBodyTwinState.ts` に分離し、UIは `components/body-twin/` に分割しています。
+- Body Buddy の外観は `bodynote:bodyTwinAppearance` としてlocalStorageに保存し、あとから編集できます。
 - UIはNext.js App Router、TypeScript、Tailwind CSS、shadcn/ui風のローカルコンポーネントで構成しています。

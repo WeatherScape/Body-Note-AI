@@ -20,7 +20,6 @@ import {
   Scale,
   Search,
   Send,
-  Share2,
   Smartphone,
   Sparkles,
   Star,
@@ -31,6 +30,7 @@ import {
 } from "lucide-react";
 import { AppShell, type TabKey } from "@/components/AppShell";
 import { BodyTwinCard } from "@/components/body-twin/BodyTwinCard";
+import { BodyTwinCreator } from "@/components/body-twin/creator/BodyTwinCreator";
 import { CoachCard } from "@/components/CoachCard";
 import { FoodPresetButton } from "@/components/FoodPresetButton";
 import { MacroBar } from "@/components/MacroBar";
@@ -41,6 +41,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { generateCoachAdvice } from "@/lib/coach";
 import { calculateBodyTwinState } from "@/lib/bodyTwin/calculateBodyTwinState";
+import { normalizeBodyTwinAppearance } from "@/lib/bodyTwin/createBodyTwinConfig";
 import { activityLevelLabels, calculateNutritionTargets } from "@/lib/nutrition";
 import { foodPresets, initialMealTemplates, mealTimingLabels, workoutPresets } from "@/lib/presets";
 import { buildDailySummary } from "@/lib/summary";
@@ -49,13 +50,14 @@ import {
   saveBodyLogs,
   saveCustomFoodPresets,
   saveCustomWorkoutPresets,
+  saveBodyTwinAppearance,
   saveMealEntries,
   saveMealTemplates,
   saveProfile,
   saveWorkoutEntries
 } from "@/lib/storage";
 import type { BodyLog, FoodPreset, GoalType, MealEntry, MealTemplate, MealTiming, UserProfile, WorkoutEntry } from "@/lib/types";
-import type { BodyTwinState, DailyBodyLog } from "@/types/bodyTwin";
+import type { BodyTwinAppearance, BodyTwinState, DailyBodyLog } from "@/types/bodyTwin";
 import { clamp, cn, createId, formatSigned, round, todayKey } from "@/lib/utils";
 
 const defaultProfile: UserProfile = {
@@ -87,7 +89,6 @@ type AnalyticsEventName =
   | "save_body_log"
   | "add_workout"
   | "feedback_open"
-  | "share_image_download"
   | "install_prompt_click";
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -262,6 +263,8 @@ export default function Home() {
   const [mealTemplates, setMealTemplates] = useState<MealTemplate[]>(initialMealTemplates);
   const [customFoodPresets, setCustomFoodPresets] = useState<FoodPreset[]>([]);
   const [customWorkoutPresets, setCustomWorkoutPresets] = useState<string[]>([]);
+  const [bodyTwinAppearance, setBodyTwinAppearance] = useState<BodyTwinAppearance | undefined>();
+  const [editingBodyTwin, setEditingBodyTwin] = useState(false);
   const [actionFeedback, setActionFeedback] = useState<{ id: number; message: string }>();
   const [showTutorial, setShowTutorial] = useState(false);
   const [quickStartDone, setQuickStartDone] = useState(true);
@@ -311,6 +314,7 @@ export default function Home() {
     setMealTemplates(data.mealTemplates.length ? data.mealTemplates : initialMealTemplates);
     setCustomFoodPresets(data.customFoodPresets);
     setCustomWorkoutPresets(data.customWorkoutPresets);
+    setBodyTwinAppearance(data.bodyTwinAppearance ? normalizeBodyTwinAppearance(data.bodyTwinAppearance) : undefined);
     setShowTutorial(window.localStorage.getItem("bodynote:tutorialDismissed") !== "true");
     setQuickStartDone(window.localStorage.getItem(QUICK_START_KEY) === "true");
     setInstallPromptDismissed(window.localStorage.getItem(INSTALL_PROMPT_KEY) === "true");
@@ -540,6 +544,7 @@ export default function Home() {
     mealTemplates,
     customFoodPresets,
     customWorkoutPresets,
+    bodyTwinAppearance,
     exportedAt: new Date().toISOString()
   });
 
@@ -553,6 +558,7 @@ export default function Home() {
       "bodynote:mealTemplates",
       "bodynote:customFoodPresets",
       "bodynote:customWorkoutPresets",
+      "bodynote:bodyTwinAppearance",
       "bodynote:tutorialDismissed",
       QUICK_START_KEY,
       INSTALL_PROMPT_KEY
@@ -576,6 +582,20 @@ export default function Home() {
           setProfile(nextProfile);
           saveProfile(nextProfile);
           trackEvent("onboarding_complete");
+        }}
+      />
+    );
+  }
+
+  if (!bodyTwinAppearance || editingBodyTwin) {
+    return (
+      <BodyTwinCreator
+        initialAppearance={bodyTwinAppearance}
+        onComplete={(appearance) => {
+          setBodyTwinAppearance(appearance);
+          saveBodyTwinAppearance(appearance);
+          setEditingBodyTwin(false);
+          notifyAdded("相棒を保存しました");
         }}
       />
     );
@@ -614,6 +634,7 @@ export default function Home() {
           advice={advice}
           progressInsight={progressInsight}
           bodyTwinState={bodyTwinState}
+          bodyTwinAppearance={bodyTwinAppearance}
           showTutorial={showTutorial}
           showInstallPrompt={!isStandalone && !installPromptDismissed && (Boolean(deferredInstallPrompt) || isIos)}
           hasNativeInstallPrompt={Boolean(deferredInstallPrompt)}
@@ -621,6 +642,7 @@ export default function Home() {
           onDismissTutorial={dismissTutorial}
           onInstall={handleInstallPrompt}
           onDismissInstall={dismissInstallPrompt}
+          onEditBodyTwin={() => setEditingBodyTwin(true)}
           onQuick={() => setActiveTab("quick")}
           onCoach={() => setActiveTab("coach")}
         />
@@ -1246,6 +1268,7 @@ function DashboardScreen({
   advice,
   progressInsight,
   bodyTwinState,
+  bodyTwinAppearance,
   showTutorial,
   showInstallPrompt,
   hasNativeInstallPrompt,
@@ -1253,6 +1276,7 @@ function DashboardScreen({
   onDismissTutorial,
   onInstall,
   onDismissInstall,
+  onEditBodyTwin,
   onQuick,
   onCoach
 }: {
@@ -1261,6 +1285,7 @@ function DashboardScreen({
   advice: NonNullable<ReturnType<typeof generateCoachAdvice>>;
   progressInsight: ProgressInsight;
   bodyTwinState: BodyTwinState;
+  bodyTwinAppearance: BodyTwinAppearance;
   showTutorial: boolean;
   showInstallPrompt: boolean;
   hasNativeInstallPrompt: boolean;
@@ -1268,6 +1293,7 @@ function DashboardScreen({
   onDismissTutorial: () => void;
   onInstall: () => void;
   onDismissInstall: () => void;
+  onEditBodyTwin: () => void;
   onQuick: () => void;
   onCoach: () => void;
 }) {
@@ -1284,8 +1310,10 @@ function DashboardScreen({
       )}
       <BodyTwinCard
         state={bodyTwinState}
+        appearance={bodyTwinAppearance}
+        onEdit={onEditBodyTwin}
         onShare={() => {
-          const text = `BodyNote AI 今日のBody Twin\n${bodyTwinState.label}: ${bodyTwinState.message}\nhttps://body-note-ai.vercel.app`;
+          const text = `BodyNote AI 今日の相棒\n${bodyTwinState.label}: ${bodyTwinState.message}\nhttps://body-note-ai.vercel.app`;
           if (navigator.share) {
             void navigator.share({ title: "BodyNote AI", text, url: "https://body-note-ai.vercel.app" });
             return;
@@ -1314,8 +1342,6 @@ function DashboardScreen({
       </Card>
 
       <ChangeSnapshotCard profile={profile} insight={progressInsight} compact />
-
-      <ShareResultCard profile={profile} summary={summary} advice={advice} progressInsight={progressInsight} />
 
       <Card>
         <CardHeader>
@@ -2149,207 +2175,6 @@ function DashboardMetric({ label, value }: { label: string; value: string }) {
       <p className="text-xs font-black text-muted">{label}</p>
       <p className="mt-1 text-xl font-black text-ink">{value}</p>
     </div>
-  );
-}
-
-function drawRoundRect(context: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) {
-  context.beginPath();
-  context.roundRect(x, y, width, height, radius);
-  context.fill();
-}
-
-function drawText(context: CanvasRenderingContext2D, text: string, x: number, y: number, maxWidth: number, lineHeight: number) {
-  const chars = [...text];
-  let line = "";
-  for (const char of chars) {
-    const testLine = `${line}${char}`;
-    if (context.measureText(testLine).width > maxWidth && line) {
-      context.fillText(line, x, y);
-      line = char;
-      y += lineHeight;
-    } else {
-      line = testLine;
-    }
-  }
-  context.fillText(line, x, y);
-}
-
-function canvasToBlob(canvas: HTMLCanvasElement) {
-  return new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("画像を作成できませんでした"))), "image/png", 0.95);
-  });
-}
-
-async function createShareImageBlob({
-  profile,
-  summary,
-  advice,
-  progressInsight
-}: {
-  profile: UserProfile;
-  summary: DailySummaryLike;
-  advice: ReturnType<typeof generateCoachAdvice>;
-  progressInsight: ProgressInsight;
-}) {
-  const canvas = document.createElement("canvas");
-  canvas.width = 1080;
-  canvas.height = 1350;
-  const context = canvas.getContext("2d");
-  if (!context) throw new Error("Canvasを使えません");
-
-  context.fillStyle = "#f7f8fb";
-  context.fillRect(0, 0, canvas.width, canvas.height);
-  context.fillStyle = "#111827";
-  drawRoundRect(context, 72, 72, 936, 1206, 54);
-
-  context.fillStyle = "#ffffff";
-  context.font = "800 34px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-  context.fillText("BodyNote AI", 126, 148);
-  context.fillStyle = "#94a3b8";
-  context.font = "700 24px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-  context.fillText(todayKey().replaceAll("-", "/"), 126, 190);
-
-  context.fillStyle = "#ffffff";
-  context.font = "900 76px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-  drawText(context, advice.scoreLabel, 126, 300, 560, 86);
-
-  context.fillStyle = "#ffffff";
-  context.beginPath();
-  context.arc(810, 262, 106, 0, Math.PI * 2);
-  context.fill();
-  context.fillStyle = "#111827";
-  context.font = "900 78px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-  context.textAlign = "center";
-  context.fillText(String(summary.score), 810, 286);
-  context.font = "800 24px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-  context.fillText("Score", 810, 326);
-  context.textAlign = "left";
-
-  const metricCards = [
-    { label: "体重変化", value: progressInsight.weightChange === undefined ? "-" : formatSigned(progressInsight.weightChange, "kg"), sub: `${progressInsight.targetProgress}%` },
-    { label: "連続記録", value: `${progressInsight.streakDays}日`, sub: `${progressInsight.weeklyRecordedDays}/7日` },
-    { label: "Protein", value: `${round(summary.protein)}g`, sub: `/ ${profile.targetProtein}g` },
-    { label: "Workout", value: `${summary.workoutSets}`, sub: "sets" }
-  ];
-
-  metricCards.forEach((metric, index) => {
-    const x = 126 + (index % 2) * 420;
-    const y = 460 + Math.floor(index / 2) * 210;
-    context.fillStyle = "#243041";
-    drawRoundRect(context, x, y, 372, 158, 38);
-    context.fillStyle = "#94a3b8";
-    context.font = "800 24px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-    context.fillText(metric.label, x + 36, y + 48);
-    context.fillStyle = "#ffffff";
-    context.font = "900 54px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-    context.fillText(metric.value, x + 36, y + 108);
-    context.fillStyle = "#94a3b8";
-    context.font = "800 22px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-    context.fillText(metric.sub, x + 190, y + 108);
-  });
-
-  context.fillStyle = "#ffffff";
-  drawRoundRect(context, 126, 940, 828, 170, 42);
-  context.fillStyle = "#64748b";
-  context.font = "900 24px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-  context.fillText("明日の一手", 166, 998);
-  context.fillStyle = "#111827";
-  context.font = "900 34px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-  drawText(context, advice.todos[0] ?? "まず1つ記録してみよう", 166, 1056, 748, 44);
-
-  context.fillStyle = "#94a3b8";
-  context.font = "800 24px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
-  context.fillText("body-note-ai.vercel.app", 126, 1206);
-
-  return canvasToBlob(canvas);
-}
-
-function ShareResultCard({
-  profile,
-  summary,
-  advice,
-  progressInsight
-}: {
-  profile: UserProfile;
-  summary: DailySummaryLike;
-  advice: ReturnType<typeof generateCoachAdvice>;
-  progressInsight: ProgressInsight;
-}) {
-  const calorieRate = Math.min(120, Math.round((summary.calories / Math.max(profile.targetCalories, 1)) * 100));
-  const proteinRate = Math.min(120, Math.round((summary.protein / Math.max(profile.targetProtein, 1)) * 100));
-  const [isCreating, setIsCreating] = useState(false);
-
-  const saveShareImage = async (mode: "download" | "share") => {
-    try {
-      setIsCreating(true);
-      const blob = await createShareImageBlob({ profile, summary, advice, progressInsight });
-      const file = new File([blob], `bodynote-${summary.date}.png`, { type: "image/png" });
-      const canShareFile = mode === "share" && navigator.canShare?.({ files: [file] });
-      if (canShareFile) {
-        await navigator.share({
-          title: "BodyNote AI",
-          text: "今日のボディメイク記録",
-          files: [file]
-        });
-      } else {
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = file.name;
-        link.click();
-        URL.revokeObjectURL(url);
-      }
-      trackEvent("share_image_download", { mode });
-    } finally {
-      setIsCreating(false);
-    }
-  };
-
-  return (
-    <Card className="overflow-hidden border-gray-900 bg-ink text-white">
-      <CardContent className="space-y-5 p-5">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.18em] text-white/55">BodyNote AI</p>
-            <h2 className="mt-1 text-2xl font-black tracking-normal">{advice.scoreLabel}</h2>
-          </div>
-          <div className="grid h-20 w-20 place-items-center rounded-full bg-white text-ink">
-            <span className="text-3xl font-black">{summary.score}</span>
-          </div>
-        </div>
-        <div className="grid grid-cols-3 gap-2">
-          <div className="rounded-3xl bg-white/10 p-3">
-            <p className="text-[11px] font-bold text-white/55">kcal</p>
-            <p className="mt-1 text-xl font-black">{summary.calories}</p>
-            <p className="text-[11px] font-bold text-white/55">{calorieRate}%</p>
-          </div>
-          <div className="rounded-3xl bg-white/10 p-3">
-            <p className="text-[11px] font-bold text-white/55">Protein</p>
-            <p className="mt-1 text-xl font-black">{round(summary.protein)}g</p>
-            <p className="text-[11px] font-bold text-white/55">{proteinRate}%</p>
-          </div>
-          <div className="rounded-3xl bg-white/10 p-3">
-            <p className="text-[11px] font-bold text-white/55">Workout</p>
-            <p className="mt-1 text-xl font-black">{summary.workoutSets}</p>
-            <p className="text-[11px] font-bold text-white/55">sets</p>
-          </div>
-        </div>
-        <div className="rounded-3xl bg-white p-4 text-ink">
-          <p className="text-xs font-black text-muted">明日の一手</p>
-          <p className="mt-1 text-sm font-black leading-6">{advice.todos[0]}</p>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <Button variant="secondary" onClick={() => void saveShareImage("download")} disabled={isCreating}>
-            <Download className="h-4 w-4" />
-            画像保存
-          </Button>
-          <Button onClick={() => void saveShareImage("share")} disabled={isCreating}>
-            <Share2 className="h-4 w-4" />
-            共有
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
   );
 }
 

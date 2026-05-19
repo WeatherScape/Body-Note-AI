@@ -1,5 +1,6 @@
 "use client";
 
+import type { BodyTwinAppearance } from "@/types/bodyTwin";
 import type { BodyLog, FoodPreset, MealEntry, MealTemplate, UserProfile, WorkoutEntry } from "@/lib/types";
 import { initialMealTemplates } from "@/lib/presets";
 
@@ -10,7 +11,8 @@ const keys = {
   bodyLogs: "bodynote:bodyLogs",
   mealTemplates: "bodynote:mealTemplates",
   customFoodPresets: "bodynote:customFoodPresets",
-  customWorkoutPresets: "bodynote:customWorkoutPresets"
+  customWorkoutPresets: "bodynote:customWorkoutPresets",
+  bodyTwinAppearance: "bodynote:bodyTwinAppearance"
 } as const;
 
 function readJson<T>(key: string, fallback: T): T {
@@ -36,6 +38,7 @@ export type AppData = {
   mealTemplates: MealTemplate[];
   customFoodPresets: FoodPreset[];
   customWorkoutPresets: string[];
+  bodyTwinAppearance?: BodyTwinAppearance;
 };
 
 export function loadAppData(): AppData {
@@ -46,7 +49,8 @@ export function loadAppData(): AppData {
     bodyLogs: readJson<BodyLog[]>(keys.bodyLogs, []),
     mealTemplates: readJson<MealTemplate[]>(keys.mealTemplates, initialMealTemplates),
     customFoodPresets: readJson<FoodPreset[]>(keys.customFoodPresets, []),
-    customWorkoutPresets: readJson<string[]>(keys.customWorkoutPresets, [])
+    customWorkoutPresets: readJson<string[]>(keys.customWorkoutPresets, []),
+    bodyTwinAppearance: readJson<BodyTwinAppearance | undefined>(keys.bodyTwinAppearance, undefined)
   };
 }
 
@@ -76,4 +80,8 @@ export function saveCustomFoodPresets(entries: FoodPreset[]) {
 
 export function saveCustomWorkoutPresets(entries: string[]) {
   writeJson(keys.customWorkoutPresets, entries);
+}
+
+export function saveBodyTwinAppearance(appearance: BodyTwinAppearance) {
+  writeJson(keys.bodyTwinAppearance, appearance);
 }

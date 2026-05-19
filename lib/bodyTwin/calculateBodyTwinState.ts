@@ -52,6 +52,18 @@ function statusFor(score: number): BodyTwinStatus {
   return "support";
 }
 
+function unlockedItemsFor(streakDays: number) {
+  const unlocks = [
+    { days: 3, label: "Soft Light背景" },
+    { days: 7, label: "ミントコア" },
+    { days: 14, label: "新しい服カラー" },
+    { days: 30, label: "限定リング" },
+    { days: 50, label: "特別バッジ" },
+    { days: 100, label: "100日称号" }
+  ];
+  return unlocks.filter((item) => streakDays >= item.days).map((item) => item.label);
+}
+
 function pickVariant(log: DailyBodyLog, fatBurnScore: number, muscleScore: number, recoveryScore: number, consistencyScore: number): BodyTwinAvatarVariant {
   if (fatBurnScore < 50) return "support";
   if (muscleScore >= 82 && log.workoutDone) return "muscle";
@@ -123,6 +135,7 @@ export function calculateBodyTwinState(logs: DailyBodyLog[]): BodyTwinState {
     message: copy.message,
     avatarVariant,
     level: Math.max(1, Math.floor(latest.streakDays / 3) + 1),
+    unlockedItems: unlockedItemsFor(latest.streakDays),
     streakDays: latest.streakDays,
     calorieBalance: round(latest.intakeCalories - latest.burnedCalories),
     weekly: {
